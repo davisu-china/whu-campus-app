@@ -1,6 +1,6 @@
 // 全局样式入口：引入设计 token 与主题变量
-@import './styles/tokens.scss';
-@import './styles/theme.scss';
+@use './styles/tokens.scss';
+@use './styles/theme.scss';
 
 // 基础重置
 page, body {

@@ -29,6 +29,11 @@ export default defineConfig<'webpack5'>(async (merge) => {
       enable: false
     },
     mini: {
+      // 多页面共享组件 SCSS 导入顺序不一致会触发 mini-css-extract-plugin 的
+      // Conflicting order 报错；组件样式类名互不冲突，忽略顺序检查即可。
+      miniCssExtractPluginOption: {
+        ignoreOrder: true
+      },
       postcss: {
         pxtransform: {
           enable: true,
