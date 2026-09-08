@@ -141,8 +141,8 @@ func (h *ContentHandler) CreateReply(c *gin.Context) {
 func (h *ContentHandler) Search(c *gin.Context) {
 	page, size := pageParams(c)
 	q := c.Query("q")
-	boardID := c.Query("board")
-	tagID := c.Query("tag")
+	boardID := c.Query("board_id")
+	tagID := c.Query("tag_id")
 	list, total, err := h.svc.Search(q, boardID, tagID, page, size)
 	if err != nil {
 		response.Fail(c, err)
@@ -155,12 +155,13 @@ func (h *ContentHandler) PresignUpload(c *gin.Context) {
 	userID := middleware.CurrentUserID(c)
 	var req struct {
 		Filename string `json:"filename" binding:"required"`
+		Client   string `json:"client"` // web | miniapp，默认 web
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Fail(c, xerr.ErrBadParam)
 		return
 	}
-	res, err := h.svc.PresignUpload(c.Request.Context(), userID, req.Filename)
+	res, err := h.svc.PresignUpload(c.Request.Context(), userID, req.Filename, req.Client)
 	if err != nil {
 		response.Fail(c, err)
 		return
@@ -171,6 +172,17 @@ func (h *ContentHandler) PresignUpload(c *gin.Context) {
 func (h *ContentHandler) MyPosts(c *gin.Context) {
 	page, size := pageParams(c)
 	list, total, err := h.svc.MyPosts(middleware.CurrentUserID(c), page, size)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OKPage(c, list, total, page, size)
+}
+
+// UserPosts 某用户的公开帖子列表（复用 MyPosts 查询）。
+func (h *ContentHandler) UserPosts(c *gin.Context) {
+	page, size := pageParams(c)
+	list, total, err := h.svc.MyPosts(c.Param("id"), page, size)
 	if err != nil {
 		response.Fail(c, err)
 		return

@@ -347,7 +347,8 @@ func (s *ContentService) DeletePost(author *model.User, id string) error {
 type CreateReplyInput struct {
 	Content     string `json:"content"`
 	IsAnonymous bool   `json:"is_anonymous"`
-	ParentID    string `json:"parent_id"` // 被回复的回复 ID（空=新楼层）
+	ParentID    string `json:"parent_id"`   // 楼中楼父回复 ID（空=新楼层）
+	ReplyToID   string `json:"reply_to_id"` // 被 @ 回复 ID（可选，缺省=parent_id）
 }
 
 func (s *ContentService) ListReplies(postID, currentUserID string) ([]ReplyView, error) {
@@ -392,9 +393,24 @@ func (s *ContentService) CreateReply(author *model.User, postID string, in Creat
 			return nil, xerr.New(xerr.CodeReplyNotFound, "回复对象不存在")
 		}
 		reply.ParentID = parent.ID
-		reply.ReplyToID = parent.ID
 		reply.FloorNo = parent.FloorNo
-		parentAuthorID = parent.AuthorID
+	}
+
+	// 被 @ 对象：优先显式 reply_to_id，否则回退为父回复
+	replyToID := in.ReplyToID
+	if replyToID == "" {
+		replyToID = in.ParentID
+	}
+	if replyToID != "" {
+		target, err := s.content.GetReply(replyToID)
+		if err != nil {
+			return nil, xerr.New(xerr.CodeReplyNotFound, "回复对象不存在")
+		}
+		if target.PostID != postID {
+			return nil, xerr.New(xerr.CodeBadParam, "回复对象不属于当前帖子")
+		}
+		reply.ReplyToID = target.ID
+		parentAuthorID = target.AuthorID
 	}
 
 	if _, err := s.content.CreateReplyWithFloor(postID, reply); err != nil {
@@ -452,25 +468,40 @@ var imageExts = map[string]bool{
 	".jpg": true, ".jpeg": true, ".png": true, ".webp": true, ".gif": true,
 }
 
-// PresignUploadResult 预签名结果。
+// PresignUploadResult 预签名结果（双协议）。
 type PresignUploadResult struct {
-	UploadURL string `json:"upload_url"`
-	ObjectKey string `json:"object_key"`
-	ExpiresIn int64  `json:"expires_in"`
+	Protocol  string            `json:"protocol"`             // put | post
+	UploadURL string            `json:"upload_url,omitempty"` // web：PUT URL
+	URL       string            `json:"url,omitempty"`        // 小程序：POST 表单 URL
+	Fields    map[string]string `json:"fields,omitempty"`     // 小程序：POST 表单字段
+	ObjectKey string            `json:"object_key"`
+	ExpiresIn int64             `json:"expires_in"`
 }
 
-func (s *ContentService) PresignUpload(ctx context.Context, userID, filename string) (*PresignUploadResult, error) {
+func (s *ContentService) PresignUpload(ctx context.Context, userID, filename, client string) (*PresignUploadResult, error) {
 	ext := strings.ToLower(filepath.Ext(filename))
 	if !imageExts[ext] {
 		return nil, xerr.New(xerr.CodeBadParam, "仅支持图片（jpg/png/webp/gif）")
 	}
 	objectKey := userID + "/" + uuid.NewString() + ext
 	ttl := s.cfg.PresignTTLDuration()
-	url, err := s.storage.PresignPut(ctx, s.storage.PublicImagesBucket(), objectKey, ttl)
+	bucket := s.storage.PublicImagesBucket()
+
+	// 微信小程序：Taro.uploadFile 仅支持 POST，走 PostPolicy 表单直传
+	if client == "miniapp" {
+		url, fields, err := s.storage.PresignPost(ctx, bucket, objectKey, ttl)
+		if err != nil {
+			return nil, xerr.New(xerr.CodeStorageErr, "生成上传链接失败").Wrap(err)
+		}
+		return &PresignUploadResult{Protocol: "post", URL: url, Fields: fields, ObjectKey: objectKey, ExpiresIn: int64(ttl.Seconds())}, nil
+	}
+
+	// Web：PUT 直传
+	url, err := s.storage.PresignPut(ctx, bucket, objectKey, ttl)
 	if err != nil {
 		return nil, xerr.New(xerr.CodeStorageErr, "生成上传链接失败").Wrap(err)
 	}
-	return &PresignUploadResult{UploadURL: url, ObjectKey: objectKey, ExpiresIn: int64(ttl.Seconds())}, nil
+	return &PresignUploadResult{Protocol: "put", UploadURL: url, ObjectKey: objectKey, ExpiresIn: int64(ttl.Seconds())}, nil
 }
 
 // ---- 个人中心 ----
@@ -545,9 +576,12 @@ func (s *ContentService) buildPostViewDetail(p *model.Post, currentUserID string
 	} else {
 		v.Fields = p.Fields
 	}
-	images, err := s.content.ListAttachments(model.OwnerTypePost, p.ID)
+	atts, err := s.content.ListAttachments(model.OwnerTypePost, p.ID)
 	if err == nil {
-		v.Images = images
+		v.Images = make([]ImageRef, 0, len(atts))
+		for _, a := range atts {
+			v.Images = append(v.Images, ImageRef{ObjectKey: a.ObjectKey, URL: s.storage.PublicURL(a.ObjectKey)})
+		}
 	}
 
 	// 互动状态

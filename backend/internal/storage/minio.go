@@ -4,6 +4,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/minio/minio-go/v7"
@@ -40,6 +41,32 @@ func (s *Storage) PresignPut(ctx context.Context, bucket, objectKey string, ttl 
 		return "", fmt.Errorf("presign put: %w", err)
 	}
 	return u.String(), nil
+}
+
+// PresignPost 生成小程序上传用的 PostPolicy 表单（POST multipart）。
+func (s *Storage) PresignPost(ctx context.Context, bucket, objectKey string, ttl time.Duration) (string, map[string]string, error) {
+	policy := minio.NewPostPolicy()
+	if err := policy.SetBucket(bucket); err != nil {
+		return "", nil, fmt.Errorf("post policy bucket: %w", err)
+	}
+	if err := policy.SetKey(objectKey); err != nil {
+		return "", nil, fmt.Errorf("post policy key: %w", err)
+	}
+	policy.SetExpires(time.Now().UTC().Add(ttl))
+	u, form, err := s.client.PresignedPostPolicy(ctx, policy)
+	if err != nil {
+		return "", nil, fmt.Errorf("presign post: %w", err)
+	}
+	return u.String(), form, nil
+}
+
+// PublicURL 由 object_key 拼装公开访问 URL；未配置 public_base_url 时原样返回 key。
+func (s *Storage) PublicURL(objectKey string) string {
+	base := strings.TrimRight(s.cfg.PublicBaseURL, "/")
+	if base == "" {
+		return objectKey
+	}
+	return base + "/" + objectKey
 }
 
 // PublicImagesBucket 帖子/回复图片桶。

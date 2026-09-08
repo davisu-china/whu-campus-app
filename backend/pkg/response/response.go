@@ -22,6 +22,7 @@ type Page struct {
 	Total    int64       `json:"total"`
 	Page     int         `json:"page"`
 	PageSize int         `json:"page_size"`
+	HasMore  bool        `json:"has_more"`
 }
 
 // OK 成功响应。
@@ -34,7 +35,7 @@ func OKPage(c *gin.Context, list interface{}, total int64, page, pageSize int) {
 	c.JSON(http.StatusOK, Body{
 		Code:    xerr.CodeOK,
 		Message: "ok",
-		Data:    Page{List: list, Total: total, Page: page, PageSize: pageSize},
+		Data:    Page{List: list, Total: total, Page: page, PageSize: pageSize, HasMore: int64(page*pageSize) < total},
 	})
 }
 

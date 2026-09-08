@@ -54,6 +54,7 @@ type MinIOConfig struct {
 	UseSSL              bool   `mapstructure:"use_ssl"`
 	PublicImagesBucket  string `mapstructure:"public_images_bucket"`
 	PublicAvatarsBucket string `mapstructure:"public_avatars_bucket"`
+	PublicBaseURL       string `mapstructure:"public_base_url"` // 图片公开访问域名前缀，空则仅返回 object_key
 }
 
 type JWTConfig struct {

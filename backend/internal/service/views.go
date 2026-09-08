@@ -9,6 +9,12 @@ import (
 // AnonymousName 匿名展示名。
 const AnonymousName = "匿名"
 
+// ImageRef 图片引用：object_key + 公开 URL。
+type ImageRef struct {
+	ObjectKey string `json:"object_key"`
+	URL       string `json:"url"`
+}
+
 // PostView 帖子对外视图（已做匿名脱敏与互动状态注入）。
 type PostView struct {
 	ID          string             `json:"id"`
@@ -29,7 +35,7 @@ type PostView struct {
 	UpdatedAt   time.Time          `json:"updated_at"`
 	Tags        []model.Tag        `json:"tags,omitempty"`
 	Fields      []model.PostField  `json:"fields,omitempty"`
-	Images      []model.Attachment `json:"images,omitempty"`
+	Images      []ImageRef         `json:"images,omitempty"`
 	Liked       bool               `json:"liked"`
 	Favorited   bool               `json:"favorited"`
 }
