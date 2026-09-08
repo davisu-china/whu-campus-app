@@ -4,6 +4,8 @@
 server:
   addr: ":8080"
   mode: "debug" # debug / release
+  # 可信代理 IP/CIDR：部署在 nginx/Cloudflare 后时设为 nginx 所在网段（如 172.18.0.0/16），
+  # 否则后端会信任任意 X-Forwarded-For 头，可被伪造绕过限流。
   trusted_proxies:
     - "127.0.0.1"
 
@@ -30,6 +32,9 @@ minio:
   use_ssl: false
   public_images_bucket: "public-images"
   public_avatars_bucket: "public-avatars"
+  # 图片公开访问域名前缀（不含末尾 /）。留空则接口仅返回 object_key，
+  # 前端无法直接预览。生产环境务必配置真实公网域名，如 https://cdn.example.com
+  public_base_url: "http://127.0.0.1:9000/public-images"
 
 jwt:
   access_secret: "change-me-access-secret"

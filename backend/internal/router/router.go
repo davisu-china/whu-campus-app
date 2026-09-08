@@ -63,6 +63,13 @@ func New(d *Deps) *gin.Engine {
 
 	gin.SetMode(d.Cfg.Server.Mode)
 	r := gin.New()
+	// 仅信任可信代理（部署在 nginx/Cloudflare 后时设为 nginx 所在网段），
+	// 否则 X-Forwarded-For 可被伪造，导致限流与 IP 审计失真。
+	if len(d.Cfg.Server.TrustedProxies) > 0 {
+		_ = r.SetTrustedProxies(d.Cfg.Server.TrustedProxies)
+	} else {
+		_ = r.SetTrustedProxies(nil)
+	}
 	r.Use(
 		middleware.RequestID(),
 		middleware.Logger(d.Log),
@@ -103,6 +110,7 @@ func New(d *Deps) *gin.Engine {
 	api.GET("/posts/:id/replies", optAuth, contentH.ListReplies)
 	api.GET("/search", optAuth, contentH.Search)
 	api.GET("/users/:id", userH.Profile)
+	api.GET("/users/:id/posts", optAuth, contentH.UserPosts)
 
 	// 需登录
 	authed := api.Group("")
