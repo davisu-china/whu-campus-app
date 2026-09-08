@@ -1,0 +1,9 @@
+# 二进制产物
+/luojia-bbs
+/server
+
+# 本地配置（含密钥，勿提交）
+configs/config.yaml
+
+# 日志
+*.log

@@ -1,0 +1,72 @@
+# 珞珈BBS 后端配置示例
+# 复制为 config.yaml 后按环境修改；密钥类一律用环境变量覆盖，勿提交真实值。
+
+server:
+  addr: ":8080"
+  mode: "debug" # debug / release
+  trusted_proxies:
+    - "127.0.0.1"
+
+database:
+  host: "127.0.0.1"
+  port: 5432
+  user: "luojia"
+  password: "luojia" # 用环境变量 DB_PASSWORD 覆盖
+  dbname: "luojia_bbs"
+  sslmode: "disable"
+  max_open_conns: 50
+  max_idle_conns: 10
+  conn_max_lifetime: "1h"
+
+redis:
+  addr: "127.0.0.1:6379"
+  password: ""
+  db: 0
+
+minio:
+  endpoint: "127.0.0.1:9000"
+  access_key: "minioadmin"
+  secret_key: "minioadmin"
+  use_ssl: false
+  public_images_bucket: "public-images"
+  public_avatars_bucket: "public-avatars"
+
+jwt:
+  access_secret: "change-me-access-secret"
+  refresh_secret: "change-me-refresh-secret"
+  access_ttl: "2h"
+  refresh_ttl: "336h" # 14d
+
+smtp:
+  host: "smtp.qq.com"
+  port: 465 # QQ SMTP，作为腾讯云 SES 失败时的兜底
+  username: "" # 用环境变量 SMTP_USERNAME 覆盖
+  password: "" # 用环境变量 SMTP_PASSWORD 覆盖
+  from: "珞珈BBS <no-reply@whu.edu.cn>"
+  # 开发模式：true 时不真正发信，验证码打印到日志
+  mock: true
+
+# 腾讯云邮件推送（SES）。配置后优先走 SES，失败自动降级到 SMTP。
+# 密钥一律用环境变量覆盖，勿提交真实值。
+tencent_ses:
+  secret_id: ""      # TENCENT_SES_SECRET_ID
+  secret_key: ""     # TENCENT_SES_SECRET_KEY
+  from_address: ""   # 已通过腾讯云校验的发件地址，如 no-reply@whu.edu.cn
+  from_name: "珞珈BBS"
+  region: "ap-guangzhou"
+
+upload:
+  max_image_mb: 10
+  presign_ttl: "15m"
+
+# 武大邮箱域名白名单（MVP 仅允许 @whu.edu.cn）
+auth:
+  allowed_email_domains:
+    - "whu.edu.cn"
+
+# 发帖限流（Redis 窗口，单位：次/秒）
+ratelimit:
+  enabled: true
+  post_per_minute: 5
+  login_per_minute: 5
+  upload_per_minute: 10
