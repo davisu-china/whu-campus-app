@@ -8,12 +8,15 @@ import (
 
 	"github.com/whu-campus/luojia-bbs/internal/auth"
 	"github.com/whu-campus/luojia-bbs/internal/cache"
+	campusservice "github.com/whu-campus/luojia-bbs/internal/campus/service"
+	campusstore "github.com/whu-campus/luojia-bbs/internal/campus/store"
 	"github.com/whu-campus/luojia-bbs/internal/config"
 	"github.com/whu-campus/luojia-bbs/internal/database"
 	"github.com/whu-campus/luojia-bbs/internal/filter"
 	"github.com/whu-campus/luojia-bbs/internal/job"
 	"github.com/whu-campus/luojia-bbs/internal/repository"
 	"github.com/whu-campus/luojia-bbs/internal/router"
+	"github.com/whu-campus/luojia-bbs/internal/service"
 	"github.com/whu-campus/luojia-bbs/internal/storage"
 )
 
@@ -46,6 +49,12 @@ func main() {
 	if err := database.Seed(db); err != nil {
 		logger.Fatal("初始化种子数据失败", zap.Error(err))
 	}
+	if err := database.SeedAdminAccounts(db); err != nil {
+		logger.Fatal("初始化管理员账号失败", zap.Error(err))
+	}
+	if err := database.SeedColleges(db); err != nil {
+		logger.Fatal("初始化院系词典失败", zap.Error(err))
+	}
 
 	// Redis
 	rc := cache.New(cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB)
@@ -71,22 +80,31 @@ func main() {
 	}
 	matcher := filter.New(words)
 
+	// 校园服务（凭据代理）与自动预约计划
+	campusStore := campusstore.New(rc, cfg.CampusSessionTTLDuration())
+	campusSvc := campusservice.New(campusStore, cfg)
+	planRepo := repository.NewBookingPlanRepo(db)
+	notifRepo := repository.NewNotificationRepo(db)
+	planSvc := service.NewCampusPlanService(planRepo, notifRepo, campusSvc)
+
 	// 定时任务
 	contentRepo := repository.NewContentRepo(db)
-	cronRunner := job.New(contentRepo, rc, logger)
+	cronRunner := job.New(contentRepo, rc, planSvc, logger)
 	c := cronRunner.Start()
 	defer c.Stop()
 
 	// 装配与启动
 	deps := &router.Deps{
-		DB:      db,
-		Cache:   rc,
-		Storage: st,
-		Tokens:  tokens,
-		Email:   email,
-		Matcher: matcher,
-		Cfg:     cfg,
-		Log:     logger,
+		DB:         db,
+		Cache:      rc,
+		Storage:    st,
+		Tokens:     tokens,
+		Email:      email,
+		Matcher:    matcher,
+		Cfg:        cfg,
+		Log:        logger,
+		Campus:     campusSvc,
+		CampusPlan: planSvc,
 	}
 	engine := router.New(deps)
 

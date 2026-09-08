@@ -11,6 +11,8 @@ import (
 
 	"github.com/whu-campus/luojia-bbs/internal/auth"
 	"github.com/whu-campus/luojia-bbs/internal/cache"
+	campushandler "github.com/whu-campus/luojia-bbs/internal/campus/handler"
+	campusservice "github.com/whu-campus/luojia-bbs/internal/campus/service"
 	"github.com/whu-campus/luojia-bbs/internal/config"
 	"github.com/whu-campus/luojia-bbs/internal/filter"
 	"github.com/whu-campus/luojia-bbs/internal/handler"
@@ -31,6 +33,9 @@ type Deps struct {
 	Matcher *filter.Matcher
 	Cfg     *config.Config
 	Log     *zap.Logger
+
+	Campus     *campusservice.Service     // 校园服务（凭据代理）
+	CampusPlan *service.CampusPlanService // 校园服务计划（自动预约）
 }
 
 // New 构建 Gin 引擎并注册全部路由。
@@ -42,6 +47,7 @@ func New(d *Deps) *gin.Engine {
 	interRepo := repository.NewInteractionRepo(d.DB)
 	govRepo := repository.NewGovernanceRepo(d.DB)
 	notifRepo := repository.NewNotificationRepo(d.DB)
+	msgRepo := repository.NewMessageRepo(d.DB)
 
 	// services
 	authSvc := service.NewAuthService(userRepo, d.Tokens, d.Email)
@@ -50,7 +56,12 @@ func New(d *Deps) *gin.Engine {
 	contentSvc := service.NewContentService(contentRepo, infoRepo, interRepo, notifRepo, d.Cache, d.Storage, d.Matcher, d.Cfg)
 	interSvc := service.NewInteractionService(interRepo, contentRepo)
 	notifSvc := service.NewNotificationService(notifRepo)
+	msgSvc := service.NewMessageService(msgRepo, userRepo, d.Matcher)
 	adminSvc := service.NewAdminService(contentRepo, infoRepo, userRepo, govRepo)
+
+	// 校园服务（凭据代理）：统一认证绑定 + 只读数据代理（课表/成绩/绩点）。
+	campusH := campushandler.NewCampusHandler(d.Campus)
+	planH := handler.NewCampusPlanHandler(d.CampusPlan)
 
 	// handlers
 	authH := handler.NewAuthHandler(authSvc)
@@ -59,6 +70,7 @@ func New(d *Deps) *gin.Engine {
 	contentH := handler.NewContentHandler(contentSvc)
 	interH := handler.NewInteractionHandler(interSvc)
 	notifH := handler.NewNotificationHandler(notifSvc)
+	msgH := handler.NewMessageHandler(msgSvc)
 	adminH := handler.NewAdminHandler(adminSvc)
 
 	gin.SetMode(d.Cfg.Server.Mode)
@@ -91,9 +103,18 @@ func New(d *Deps) *gin.Engine {
 	authGroup.POST("/email/send-code",
 		middleware.RateLimit(d.Cache, "send-code", d.Cfg.RateLimit.LoginPerMinute, time.Minute),
 		authH.SendCode)
-	authGroup.POST("/email/login",
+	authGroup.POST("/register",
+		middleware.RateLimit(d.Cache, "register", d.Cfg.RateLimit.LoginPerMinute, time.Minute),
+		authH.Register)
+	authGroup.POST("/login",
 		middleware.RateLimit(d.Cache, "login", d.Cfg.RateLimit.LoginPerMinute, time.Minute),
 		authH.Login)
+	authGroup.POST("/email/login",
+		middleware.RateLimit(d.Cache, "login-code", d.Cfg.RateLimit.LoginPerMinute, time.Minute),
+		authH.LoginByCode)
+	authGroup.POST("/reset-password",
+		middleware.RateLimit(d.Cache, "reset-password", d.Cfg.RateLimit.LoginPerMinute, time.Minute),
+		authH.ResetPassword)
 	authGroup.POST("/refresh", authH.Refresh)
 
 	// 信息架构（公开读）
@@ -140,6 +161,54 @@ func New(d *Deps) *gin.Engine {
 		authed.GET("/notifications/unread-count", notifH.UnreadCount)
 		authed.POST("/notifications/read", notifH.MarkAllRead)
 		authed.POST("/notifications/:id/read", notifH.MarkRead)
+
+		authed.GET("/messages/conversations", msgH.ListConversations)
+		authed.GET("/messages/conversations/:id/messages", msgH.ListMessages)
+		authed.POST("/messages", msgH.Send)
+		authed.GET("/messages/unread-count", msgH.UnreadCount)
+
+		// 校园服务（武大统一身份认证绑定）
+		authed.POST("/campus/cas/bind",
+			middleware.RateLimit(d.Cache, "campus-bind", d.Cfg.RateLimit.LoginPerMinute, time.Minute),
+			campusH.Bind)
+		authed.GET("/campus/cas/status", campusH.Status)
+		authed.POST("/campus/cas/unbind", campusH.Unbind)
+
+		// 校园服务（只读数据：课表/成绩/绩点/一卡通/校车）
+		authed.GET("/campus/course", campusH.Timetable)
+		authed.GET("/campus/score", campusH.Scores)
+		authed.GET("/campus/gpa", campusH.GPA)
+		authed.GET("/campus/card", campusH.Card)
+		authed.GET("/campus/bus", campusH.Bus)
+
+		// 校园服务（图书馆座位：只读查询 + 预约/取消/签到）
+		authed.GET("/campus/library/buildings", campusH.LibraryBuildings)
+		authed.GET("/campus/library/rooms", campusH.LibraryRooms)
+		authed.GET("/campus/library/seats", campusH.LibrarySeats)
+		authed.GET("/campus/library/captcha", campusH.LibraryCaptcha)
+		authed.POST("/campus/library/booking",
+			middleware.RateLimit(d.Cache, "campus-book", d.Cfg.RateLimit.PostPerMinute, time.Minute),
+			campusH.LibraryBooking)
+		authed.POST("/campus/library/cancel", campusH.LibraryCancel)
+		authed.POST("/campus/library/checkin", campusH.LibraryCheckin)
+
+		// 校园服务（图书馆定时自动预约计划）
+		authed.GET("/campus/library/plan", planH.ListBookingPlans)
+		authed.POST("/campus/library/plan", planH.CreateBookingPlan)
+		authed.DELETE("/campus/library/plan/:id", planH.DeleteBookingPlan)
+
+		// 校园服务（云打印：打印点 + 上传打印）
+		authed.GET("/campus/print/stations", campusH.PrintStations)
+		authed.POST("/campus/print/submit",
+			middleware.RateLimit(d.Cache, "print-submit", d.Cfg.RateLimit.UploadPerMinute, time.Minute),
+			campusH.PrintSubmit)
+
+		// 校园服务（体育场馆：场次查询 + 下单）
+		authed.GET("/campus/gym/stadiums", campusH.GymStadiums)
+		authed.GET("/campus/gym/sessions", campusH.GymSessions)
+		authed.POST("/campus/gym/order",
+			middleware.RateLimit(d.Cache, "gym-order", d.Cfg.RateLimit.PostPerMinute, time.Minute),
+			campusH.GymOrder)
 	}
 
 	// 运营后台（role ≥ 2）

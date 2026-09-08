@@ -155,13 +155,14 @@ func (h *ContentHandler) PresignUpload(c *gin.Context) {
 	userID := middleware.CurrentUserID(c)
 	var req struct {
 		Filename string `json:"filename" binding:"required"`
-		Client   string `json:"client"` // web | miniapp，默认 web
+		Client   string `json:"client"`  // web | miniapp，默认 web
+		Purpose  string `json:"purpose"` // image（默认，帖子图片）| avatar（头像）
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Fail(c, xerr.ErrBadParam)
 		return
 	}
-	res, err := h.svc.PresignUpload(c.Request.Context(), userID, req.Filename, req.Client)
+	res, err := h.svc.PresignUpload(c.Request.Context(), userID, req.Filename, req.Client, req.Purpose)
 	if err != nil {
 		response.Fail(c, err)
 		return

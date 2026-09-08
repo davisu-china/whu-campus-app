@@ -56,13 +56,12 @@
 
 ### 3.1 架构形态：模块化单体
 
-单一进程，内部按领域分层。对外暴露 REST API；小程序与 Web 复用同一套接口。
+单一进程，内部按领域分层。对外暴露 REST API；Web 前端复用同一套接口。
 
 ```
                         ┌─────────────────────────────┐
-   微信小程序 ────────▶ │                             │
-                        │        Gin HTTP Server      │
-   Web 前端   ────────▶ │   (router + middleware)     │
+   Web 前端   ────────▶ │        Gin HTTP Server      │
+                        │   (router + middleware)     │
                         └──────────────┬──────────────┘
                                        │
                         ┌──────────────▼──────────────┐
@@ -568,9 +567,7 @@ published ──（运营）置顶/加精──▶ is_pinned / is_featured（布
 ### 7.7 文件上传（F-14，MinIO）
 
 - 前端先调 `/upload/presign` 换取上传凭证，直接上传到 MinIO，不经过后端中转（减轻后端压力、支持大图）。
-- **双协议预签名**（前端双端差异，见前端方案 8.4）：
-  - **Web（H5）**：签发预签名 **PUT URL**，前端 `fetch PUT` 直传。
-  - **微信小程序**：`Taro.uploadFile` 仅支持 multipart POST，改为签发 MinIO **PostPolicy 表单**，前端 `Taro.uploadFile` 直传。
+- **预签名 PUT 直传**：后端签发预签名 **PUT URL**，前端 `fetch PUT`（raw body）直传 MinIO。
 - 上传完成后前端回传 object key，随发帖一并提交，写入 `attachments`。
 - 详见第 9 章。
 
@@ -615,37 +612,27 @@ published ──（运营）置顶/加精──▶ is_pinned / is_featured（布
 | `public-images` | 帖子/回复图片 | 公开读（CDN/直链） |
 | `public-avatars` | 用户头像 | 公开读 |
 
-### 9.2 上传流程（预签名，双协议）
+### 9.2 上传流程（预签名 PUT 直传）
 
-`POST /upload/presign` 根据 `client` 参数（`web` / `miniapp`）返回对应凭证：
+`POST /upload/presign` 返回 PUT 预签名凭证：
 
 ```
 POST /api/v1/upload/presign
-  body: { client: "web" | "miniapp", filename: "x.jpg", content_type: "image/jpeg" }
+  body: { filename: "x.jpg", content_type: "image/jpeg" }
 
-  resp（web）:     { protocol: "put",  upload_url, object_key }
-  resp（miniapp）: { protocol: "post", url, fields: { policy, signature, x-amz-* }, object_key }
+  resp: { protocol: "put", upload_url, object_key }
 ```
 
 - **Web（PUT 直传）**：
 
   ```
-  前端 ──POST /upload/presign {client:"web"}──▶ 后端（校验登录/权限）
+  前端 ──POST /upload/presign──▶ 后端（校验登录/权限）
         ◀── { protocol:"put", upload_url, object_key } ──
   前端 ──PUT upload_url（raw body）──▶ MinIO
   前端 ──提交发帖(带 object_key)──▶ 后端（写 attachments）
   ```
 
-- **小程序（POST policy 直传）**：
-
-  ```
-  前端 ──POST /upload/presign {client:"miniapp"}──▶ 后端（校验登录/权限）
-        ◀── { protocol:"post", url, fields, object_key } ──
-  前端 ──Taro.uploadFile(url, formData: fields, filePath)──▶ MinIO（multipart POST）
-  前端 ──提交发帖(带 object_key)──▶ 后端（写 attachments）
-  ```
-
-> 说明：小程序端 `Taro.uploadFile` 仅支持 multipart POST、无法直传 PUT URL，故后端需为小程序签发 MinIO `PostPolicy` 表单；两端 `object_key` 规则一致（见 9.3）。
+> 说明：后端 `minio.go` 仍保留 `PresignPost`（PostPolicy 表单）与 `client` 参数分支，为历史兼容；`luojia-frontend` 废弃后仅 Web 走 PUT 直传，PostPolicy 分支不再被调用。
 
 ### 9.3 隐私与安全
 

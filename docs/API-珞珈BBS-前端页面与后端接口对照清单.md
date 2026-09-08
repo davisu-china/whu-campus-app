@@ -77,7 +77,7 @@
 | board | `src/api/board.ts` | 分类、板块、板块标签、板块帖子 |
 | content | `src/api/content.ts` | 帖子、回复、互动、举报 |
 | search | `src/api/search.ts` | 全文搜索、字典搜索 |
-| upload | `src/api/upload.ts` | 预签名直传（双协议） |
+| upload | `src/api/upload.ts` | 预签名直传（PUT） |
 | user | `src/api/user.ts` | 他人主页、我的内容 |
 | notification | `src/api/notification.ts` | 通知列表 / 未读 / 已读 |
 
@@ -134,7 +134,7 @@
 | `searchDict` | GET `/api/v1/dict/search` | `{ type, q }` | `DictItem[]` | ✅ |
 
 > **2.5.1 ⚠️** 后端 `PresignUpload` 仅绑定 `{ filename, client }`，**未读取 `content_type`**。前端已发送，后端忽略，无阻塞；若需按类型校验可在后端补读。
-> 上传为**双协议**：`client=miniapp` 走 `protocol=post`（`url + fields`，配合 `Taro.uploadFile` POST 表单）；`client=web` 走 `protocol=put`（`upload_url`，`fetch` PUT raw body）。
+> 上传统一走 **PUT 直传**：前端 `upload.ts` 以 `client=web` 调 `POST /upload/presign`，拿 `{ protocol:"put", upload_url, object_key }`，`fetch` PUT raw body 直传 MinIO。后端仍保留 `client=miniapp` 的 PostPolicy 分支，但已随 `luojia-frontend` 废弃、前端不再调用。
 
 ### 2.6 搜索页 `pages/search`
 
@@ -204,7 +204,7 @@
 - `internal/service/content.go`：`CreateReplyInput` 新增 `reply_to_id`，回复落库时 `ReplyToID` 优先取显式 @ 对象（校验同帖），通知对象改为被 @ 楼层作者。
 - `internal/handler/content.go`：搜索过滤参数 `board`/`tag` 统一为 `board_id`/`tag_id`。
 
-**前端（`luojia-frontend/`）**
+**前端（`luojia-web/`）**
 - `api/request.ts`：`CODE` 错误码改为真实后端码（0/10002/10004/20001/20002/20006/20007/20008）。
 - `constants/enums.ts`：排序 key `default` → `comprehensive`。
 - `api/types.ts`：新增 `PostField/ImageRef`；`SortType` 四值；`Post`/`Reply` 字段扩充；`User` 补 `student_no`。

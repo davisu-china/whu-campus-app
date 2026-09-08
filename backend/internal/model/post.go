@@ -48,8 +48,8 @@ type Reply struct {
 	Base
 	PostID      string    `gorm:"type:uuid;index:idx_post_floor" json:"post_id"`
 	AuthorID    string    `gorm:"type:uuid;index" json:"author_id"`
-	ParentID    string    `gorm:"type:uuid" json:"parent_id"`   // 楼中楼：父回复 ID（顶层为空）
-	ReplyToID   string    `gorm:"type:uuid" json:"reply_to_id"` // 被回复回复 ID（@ 对象）
+	ParentID    *string   `gorm:"type:uuid" json:"parent_id"`   // 楼中楼：父回复 ID（顶层为 nil → NULL）
+	ReplyToID   *string   `gorm:"type:uuid" json:"reply_to_id"` // 被回复回复 ID（@ 对象，顶层为 nil）
 	FloorNo     int       `gorm:"index:idx_post_floor" json:"floor_no"`
 	Content     string    `gorm:"type:text" json:"content"`
 	IsAnonymous bool      `gorm:"default:false" json:"is_anonymous"`

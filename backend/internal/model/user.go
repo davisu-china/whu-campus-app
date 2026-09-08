@@ -3,19 +3,21 @@ package model
 // User 用户。武大邮箱为 MVP 唯一登录标识，认证即邮箱域校验通过。
 type User struct {
 	Base
-	Nickname     string `gorm:"size:32" json:"nickname"`
-	AvatarURL    string `gorm:"type:text" json:"avatar_url"`
-	Email        string `gorm:"size:128;uniqueIndex" json:"email"`
-	Phone        string `gorm:"size:20;uniqueIndex" json:"-"`     // 预留
-	WechatOpenID string `gorm:"size:64;uniqueIndex" json:"-"`     // 预留
-	PasswordHash string `gorm:"size:255" json:"-"`                // 预留
-	IsVerified   bool   `gorm:"default:false" json:"is_verified"` // 武大认证标记
-	StudentNo    string `gorm:"size:32;uniqueIndex" json:"student_no"`
-	College      string `gorm:"size:64" json:"college"`
-	Grade        string `gorm:"size:16" json:"grade"`
-	Bio          string `gorm:"size:200" json:"bio"`
-	Role         int    `gorm:"type:smallint;default:1" json:"role"`
-	Status       int    `gorm:"type:smallint;default:0" json:"status"`
+	Nickname     string  `gorm:"size:32" json:"nickname"`
+	AvatarURL    string  `gorm:"type:text" json:"avatar_url"`
+	Email        string  `gorm:"size:128;uniqueIndex" json:"email"`
+	Phone        *string `gorm:"size:20;uniqueIndex" json:"-"`     // 预留（可空，空即 NULL）
+	WechatOpenID *string `gorm:"size:64;uniqueIndex" json:"-"`     // 预留（可空，空即 NULL）
+	PasswordHash string  `gorm:"size:255" json:"-"`                // 预留
+	IsVerified   bool    `gorm:"default:false" json:"is_verified"` // 武大认证标记
+	StudentNo    *string `gorm:"size:32;uniqueIndex" json:"student_no"`
+	College      string  `gorm:"size:64" json:"college"`
+	Grade        string  `gorm:"size:16" json:"grade"`
+	Identity     string  `gorm:"size:16" json:"identity"` // 身份：学生/教职工/其他
+	Degree       string  `gorm:"size:16" json:"degree"`   // 学历层次：本科/硕士/博士/其他
+	Bio          string  `gorm:"size:200" json:"bio"`
+	Role         int     `gorm:"type:smallint;default:1" json:"role"`
+	Status       int     `gorm:"type:smallint;default:0" json:"status"`
 }
 
 // UserPublic 对外展示的用户信息（不含邮箱/手机号等敏感字段）。
@@ -26,6 +28,8 @@ type UserPublic struct {
 	IsVerified bool   `json:"is_verified"`
 	College    string `json:"college"`
 	Grade      string `json:"grade"`
+	Identity   string `json:"identity"`
+	Degree     string `json:"degree"`
 	Bio        string `json:"bio"`
 	Role       int    `json:"role"`
 }
@@ -39,6 +43,8 @@ func (u *User) ToPublic() UserPublic {
 		IsVerified: u.IsVerified,
 		College:    u.College,
 		Grade:      u.Grade,
+		Identity:   u.Identity,
+		Degree:     u.Degree,
 		Bio:        u.Bio,
 		Role:       u.Role,
 	}

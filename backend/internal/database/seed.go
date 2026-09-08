@@ -1,8 +1,11 @@
 package database
 
 import (
+	"errors"
+
 	"gorm.io/gorm"
 
+	"github.com/whu-campus/luojia-bbs/internal/auth"
 	"github.com/whu-campus/luojia-bbs/internal/model"
 )
 
@@ -65,9 +68,10 @@ var seedCategories = []seedCategory{
 		boards: []seedBoard{
 			{model.SlugRecruit, "校招实习", "校招与实习招聘信息", model.FieldModeTags, []seedTag{
 				{"校招", false}, {"实习", false}, {"宣讲会", false}, {"其他", false},
+				{"内推", false}, {"求内推", false},
 			}},
-			{model.SlugReferral, "内推专区", "内推机会、求内推", model.FieldModeTags, []seedTag{
-				{"内推", true}, {"求内推", true},
+			{model.SlugPartTime, "兼职信息", "兼职、家教、零工信息", model.FieldModeTags, []seedTag{
+				{"家教", false}, {"校园", false}, {"线上", false}, {"门店", false}, {"其他", false},
 			}},
 			{model.SlugJobExp, "求职经验", "面经、简历、笔试避坑", model.FieldModeTags, []seedTag{
 				{"面经", false}, {"简历", false}, {"笔试", false}, {"避坑", false}, {"其他", false},
@@ -177,14 +181,136 @@ func Seed(db *gorm.DB) error {
 			}
 		}
 
-		// 运营账号（登录后即为运营，role=3）
-		operator := model.User{
-			Email:      "admin@whu.edu.cn",
-			Nickname:   "珞珈小助手",
-			IsVerified: true,
-			Role:       model.RoleOperator,
-			Status:     model.UserStatusNormal,
-		}
-		return tx.Create(&operator).Error
+		return nil
 	})
+}
+
+// adminAccount 内置管理员账号（上线后请尽快修改密码）。
+type adminAccount struct {
+	email    string
+	password string
+	nickname string
+	role     int
+}
+
+// seedAdminAccounts 内置管理员清单（密码为初始值，务必在首次上线后更换）。
+var seedAdminAccounts = []adminAccount{
+	{"admin@whu.edu.cn", "Whu@Admin2026", "珞珈小助手", model.RoleOperator},
+	{"moderator@whu.edu.cn", "Whu@Mod2026", "站务版主", model.RoleModerator},
+	{"operator@whu.edu.cn", "Whu@Ops2026", "运营专员", model.RoleOperator},
+}
+
+// SeedAdminAccounts 幂等写入内置管理员账号。始终执行（与 Seed 的 boardCount 闸门解耦），
+// 确保已在运行的库也能补上管理员密码；已存在账号不覆盖其已有密码，仅补空密码并提升角色。
+func SeedAdminAccounts(db *gorm.DB) error {
+	for _, a := range seedAdminAccounts {
+		var u model.User
+		err := db.Where("email = ?", a.email).First(&u).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			hash, herr := auth.HashPassword(a.password)
+			if herr != nil {
+				return herr
+			}
+			u = model.User{
+				Email:        a.email,
+				PasswordHash: hash,
+				Nickname:     a.nickname,
+				IsVerified:   true,
+				Role:         a.role,
+				Status:       model.UserStatusNormal,
+			}
+			if cerr := db.Create(&u).Error; cerr != nil {
+				return cerr
+			}
+			continue
+		}
+		if err != nil {
+			return err
+		}
+
+		updates := map[string]interface{}{}
+		if u.PasswordHash == "" {
+			hash, herr := auth.HashPassword(a.password)
+			if herr != nil {
+				return herr
+			}
+			updates["password_hash"] = hash
+		}
+		if u.Role < a.role {
+			updates["role"] = a.role
+		}
+		if len(updates) > 0 {
+			if uerr := db.Model(&u).Updates(updates).Error; uerr != nil {
+				return uerr
+			}
+		}
+	}
+	return nil
+}
+
+// 武大院系列表（来源：https://www.whu.edu.cn/jgsz/yxsz.htm）。
+// 括号内附注（如“艺术教育中心”“基础医学院”）已并入主名，保持下拉选择简洁。
+var collegeNames = []string{
+	"哲学学院",
+	"文学院",
+	"外国语言文学学院",
+	"新闻与传播学院",
+	"历史学院",
+	"艺术学院",
+	"经济与管理学院",
+	"法学院",
+	"政治与公共管理学院",
+	"马克思主义学院",
+	"社会学院",
+	"信息管理学院",
+	"数学与统计学院",
+	"物理科学与技术学院",
+	"化学与分子科学学院",
+	"生命科学学院",
+	"资源与环境科学学院",
+	"地球与空间科学技术学院",
+	"动力与机械学院",
+	"电气与自动化学院",
+	"土木建筑工程学院",
+	"水利水电学院",
+	"城市设计学院",
+	"机器人学院",
+	"集成电路学院",
+	"电子信息学院",
+	"计算机学院",
+	"遥感信息工程学院",
+	"测绘学院",
+	"国家网络安全学院",
+	"人工智能学院",
+	"泰康医学院",
+	"公共卫生学院",
+	"药学院",
+	"第一临床学院",
+	"第二临床学院",
+	"口腔医学院",
+	"护理学院",
+	"弘毅学堂",
+	"前沿交叉学科研究院",
+	"国家卓越工程师学院",
+	"科技与产业学院",
+	"武汉大学杜伦大学联合学院",
+}
+
+// SeedColleges 幂等写入院系词典（始终执行，与 Seed 的 boardCount 闸门解耦）。
+func SeedColleges(db *gorm.DB) error {
+	for _, name := range collegeNames {
+		var item model.DictItem
+		err := db.Where("dict_type = ? AND name = ?", model.DictTypeCollege, name).First(&item).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			d := model.DictItem{DictType: model.DictTypeCollege, Name: name, Status: model.StatusEnabled}
+			if cerr := db.Create(&d).Error; cerr != nil {
+				return cerr
+			}
+			continue
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

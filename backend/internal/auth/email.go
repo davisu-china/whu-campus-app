@@ -22,6 +22,13 @@ const (
 	codeCooldown = 60 * time.Second // 同邮箱重发冷却
 )
 
+// 验证码场景：区分用途，隔离不同流程的验证码。
+const (
+	SceneLogin    = "login"
+	SceneRegister = "register"
+	SceneReset    = "reset"
+)
+
 // EmailVerifier 邮箱验证码签发与校验。
 type EmailVerifier struct {
 	cache          *cache.Client
@@ -57,8 +64,8 @@ func (e *EmailVerifier) AllowedDomain(email string) bool {
 	return false
 }
 
-// SendCode 生成验证码、写 Redis 并发送。
-func (e *EmailVerifier) SendCode(ctx context.Context, email string) error {
+// SendCode 生成验证码、写 Redis 并发送。scene 区分用途（login/register/reset）。
+func (e *EmailVerifier) SendCode(ctx context.Context, email, scene string) error {
 	// 同邮箱 60s 内重发冷却。
 	cooldownKey := cooldownKey(email)
 	exists, err := e.cache.Exists(ctx, cooldownKey)
@@ -73,21 +80,21 @@ func (e *EmailVerifier) SendCode(ctx context.Context, email string) error {
 	if err != nil {
 		return err
 	}
-	if err := e.cache.Set(ctx, codeKey(email), code, codeTTL); err != nil {
+	if err := e.cache.Set(ctx, codeKey(scene, email), code, codeTTL); err != nil {
 		return xerr.New(xerr.CodeCacheErr, "验证码存储失败").Wrap(err)
 	}
 	_ = e.cache.Set(ctx, cooldownKey, "1", codeCooldown)
 
 	if e.cfg.Mock {
-		e.log.Info("email code (mock)", zap.String("email", email), zap.String("code", code))
+		e.log.Info("email code (mock)", zap.String("email", email), zap.String("scene", scene), zap.String("code", code))
 		return nil
 	}
-	return e.send(ctx, email, code)
+	return e.send(ctx, email, subjectFor(scene), bodyFor(scene, code))
 }
 
 // Verify 校验验证码，成功即删除。
-func (e *EmailVerifier) Verify(ctx context.Context, email, code string) error {
-	stored, err := e.cache.Get(ctx, codeKey(email))
+func (e *EmailVerifier) Verify(ctx context.Context, email, scene, code string) error {
+	stored, err := e.cache.Get(ctx, codeKey(scene, email))
 	if err != nil {
 		return xerr.New(xerr.CodeCacheErr, "验证码校验失败").Wrap(err)
 	}
@@ -97,12 +104,12 @@ func (e *EmailVerifier) Verify(ctx context.Context, email, code string) error {
 	if stored != code {
 		return xerr.New(xerr.CodeVerifyCodeWrong, "验证码错误")
 	}
-	_ = e.cache.Del(ctx, codeKey(email))
+	_ = e.cache.Del(ctx, codeKey(scene, email))
 	return nil
 }
 
-func codeKey(email string) string     { return "email:code:" + email }
-func cooldownKey(email string) string { return "email:cooldown:" + email }
+func codeKey(scene, email string) string { return "email:code:" + scene + ":" + email }
+func cooldownKey(email string) string    { return "email:cooldown:" + email }
 
 func randomCode() (string, error) {
 	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
@@ -113,10 +120,7 @@ func randomCode() (string, error) {
 }
 
 // send 发送验证码邮件：优先腾讯云 SES，失败降级到 SMTP。
-func (e *EmailVerifier) send(ctx context.Context, email, code string) error {
-	subject := "【珞珈BBS】邮箱验证码"
-	body := htmlBody(code)
-
+func (e *EmailVerifier) send(ctx context.Context, email, subject, body string) error {
 	if e.ses.configured() {
 		if err := e.ses.send(ctx, email, subject, body); err == nil {
 			e.log.Info("email sent via tencent ses", zap.String("email", email))
@@ -206,19 +210,45 @@ func bareAddress(s string) string {
 	return strings.TrimSpace(s)
 }
 
+// subjectFor 按场景返回邮件主题。
+func subjectFor(scene string) string {
+	switch scene {
+	case SceneRegister:
+		return "【在武大】注册验证码"
+	case SceneReset:
+		return "【在武大】重置密码验证码"
+	default:
+		return "【在武大】邮箱验证码"
+	}
+}
+
+// bodyFor 按场景返回邮件正文。
+func bodyFor(scene, code string) string {
+	var action string
+	switch scene {
+	case SceneRegister:
+		action = "注册在武大账号"
+	case SceneReset:
+		action = "重置登录密码"
+	default:
+		action = "登录在武大"
+	}
+	return htmlBody(action, code)
+}
+
 // htmlBody 验证码邮件 HTML 正文。
-func htmlBody(code string) string {
+func htmlBody(action, code string) string {
 	return fmt.Sprintf(`<!DOCTYPE html>
 <html lang="zh-CN">
 <body style="margin:0;padding:0;background:#f6f6f6;">
   <div style="max-width:480px;margin:0 auto;padding:32px;background:#fff;font-family:system-ui,-apple-system,'PingFang SC',sans-serif;">
-    <h2 style="color:#333;">珞珈BBS 邮箱验证</h2>
-    <p style="color:#555;line-height:1.6;">您正在登录珞珈BBS，验证码如下，有效期 %d 分钟：</p>
+    <h2 style="color:#333;">在武大 邮箱验证</h2>
+    <p style="color:#555;line-height:1.6;">您正在%s，验证码如下，有效期 %d 分钟：</p>
     <div style="margin:24px 0;padding:16px 32px;background:#f4f4f5;border-radius:8px;text-align:center;">
       <span style="font-size:32px;font-weight:700;letter-spacing:8px;color:#16a34a;">%s</span>
     </div>
     <p style="color:#999;font-size:12px;">若非本人操作，请忽略本邮件。</p>
   </div>
 </body>
-</html>`, int(codeTTL.Minutes()), code)
+</html>`, action, int(codeTTL.Minutes()), code)
 }

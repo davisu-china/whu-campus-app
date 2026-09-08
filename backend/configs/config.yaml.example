@@ -75,3 +75,17 @@ ratelimit:
   post_per_minute: 5
   login_per_minute: 5
   upload_per_minute: 10
+
+# 校园服务（武大内部系统凭据代理）。enabled 为 false 时 /campus 接口返回 80001。
+# 仅存储 CAS 会话（不存密码）；各子系统 URL 随里程碑逐步启用，空串表示未接入。
+campus:
+  enabled: false
+  cas_base_url: "https://cas.whu.edu.cn"      # 统一身份认证
+  edu_base_url: "https://jwgl.whu.edu.cn"     # 教务（课表/成绩/绩点，M2）
+  lib_base_url: "https://seat.lib.whu.edu.cn" # 图书馆座位（M3）
+  bus_base_url: "https://bus.whu.edu.cn"      # 校车（M2）
+  card_base_url: "https://zsgx.whu.edu.cn"    # 一卡通（M2）
+  print_base_url: "https://print.lib.whu.edu.cn" # 云打印（M4）
+  gym_base_url: "https://gym.whu.edu.cn"        # 体育场馆（M4）
+  session_ttl: "24h"                          # 会话缓存 TTL
+  timeout: "15s"                              # 上游请求超时

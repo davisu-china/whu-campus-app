@@ -66,7 +66,7 @@ func (r *ContentRepo) CreatePostWithDetails(post *model.Post, tagIDs []string, f
 func (r *ContentRepo) CreateReplyWithFloor(postID string, reply *model.Reply) (int, error) {
 	var floor int
 	err := r.db.Transaction(func(tx *gorm.DB) error {
-		if reply.ParentID == "" {
+		if reply.ParentID == nil {
 			var f int
 			if err := tx.Raw(
 				"UPDATE posts SET reply_count = reply_count + 1 WHERE id = ? RETURNING reply_count",
@@ -94,6 +94,41 @@ func (r *ContentRepo) GetPost(id string) (*model.Post, error) {
 
 func (r *ContentRepo) UpdatePost(id string, fields map[string]interface{}) error {
 	return r.db.Model(&model.Post{}).Where("id = ?", id).Updates(fields).Error
+}
+
+// ReplacePostDetails 事务内整体替换帖子的标签与附件（tagIDs/atts 为 nil 表示不改动对应项）。
+func (r *ContentRepo) ReplacePostDetails(postID string, tagIDs []string, atts []model.Attachment) error {
+	return r.db.Transaction(func(tx *gorm.DB) error {
+		if tagIDs != nil {
+			if err := tx.Where("post_id = ?", postID).Delete(&model.PostTag{}).Error; err != nil {
+				return err
+			}
+			if len(tagIDs) > 0 {
+				rows := make([]model.PostTag, 0, len(tagIDs))
+				for _, tid := range tagIDs {
+					rows = append(rows, model.PostTag{PostID: postID, TagID: tid})
+				}
+				if err := tx.Create(&rows).Error; err != nil {
+					return err
+				}
+			}
+		}
+		if atts != nil {
+			if err := tx.Where("owner_type = ? AND owner_id = ?", model.OwnerTypePost, postID).Delete(&model.Attachment{}).Error; err != nil {
+				return err
+			}
+			if len(atts) > 0 {
+				for i := range atts {
+					atts[i].OwnerID = postID
+					atts[i].OwnerType = model.OwnerTypePost
+				}
+				if err := tx.Create(&atts).Error; err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
 }
 
 func (r *ContentRepo) ListPosts(q PostListQuery) ([]model.Post, int64, error) {

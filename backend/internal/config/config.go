@@ -21,6 +21,7 @@ type Config struct {
 	Upload     UploadConfig     `mapstructure:"upload"`
 	Auth       AuthConfig       `mapstructure:"auth"`
 	RateLimit  RateLimitConfig  `mapstructure:"ratelimit"`
+	Campus     CampusConfig     `mapstructure:"campus"`
 }
 
 type ServerConfig struct {
@@ -52,6 +53,7 @@ type MinIOConfig struct {
 	AccessKey           string `mapstructure:"access_key"`
 	SecretKey           string `mapstructure:"secret_key"`
 	UseSSL              bool   `mapstructure:"use_ssl"`
+	PublicEndpoint      string `mapstructure:"public_endpoint"` // 浏览器直传预签名域名（HTTPS），空则用内部 endpoint
 	PublicImagesBucket  string `mapstructure:"public_images_bucket"`
 	PublicAvatarsBucket string `mapstructure:"public_avatars_bucket"`
 	PublicBaseURL       string `mapstructure:"public_base_url"` // 图片公开访问域名前缀，空则仅返回 object_key
@@ -96,6 +98,21 @@ type RateLimitConfig struct {
 	PostPerMinute   int  `mapstructure:"post_per_minute"`
 	LoginPerMinute  int  `mapstructure:"login_per_minute"`
 	UploadPerMinute int  `mapstructure:"upload_per_minute"`
+}
+
+// CampusConfig 校园服务（武大内部系统凭据代理）配置。
+// 各子系统 URL 按里程碑逐步启用；未配置的子系统为空串表示「未接入」。
+type CampusConfig struct {
+	Enabled      bool   `mapstructure:"enabled"`        // 是否启用校园服务
+	CASBaseURL   string `mapstructure:"cas_base_url"`   // 武大统一身份认证（CAS）
+	EduBaseURL   string `mapstructure:"edu_base_url"`   // 教务系统（课表/成绩/绩点）
+	LibBaseURL   string `mapstructure:"lib_base_url"`   // 图书馆座位预约
+	BusBaseURL   string `mapstructure:"bus_base_url"`   // 校车查询
+	CardBaseURL  string `mapstructure:"card_base_url"`  // 校园一卡通
+	PrintBaseURL string `mapstructure:"print_base_url"` // 图书馆云打印
+	GymBaseURL   string `mapstructure:"gym_base_url"`   // 体育场馆预约
+	SessionTTL   string `mapstructure:"session_ttl"`    // 会话缓存 TTL
+	Timeout      string `mapstructure:"timeout"`        // 上游请求超时
 }
 
 // Load 从指定路径加载配置，并用环境变量覆盖。
@@ -192,6 +209,33 @@ func applyDefaults(cfg *Config) {
 	if cfg.RateLimit.UploadPerMinute == 0 {
 		cfg.RateLimit.UploadPerMinute = 10
 	}
+	if cfg.Campus.CASBaseURL == "" {
+		cfg.Campus.CASBaseURL = "https://cas.whu.edu.cn"
+	}
+	if cfg.Campus.EduBaseURL == "" {
+		cfg.Campus.EduBaseURL = "https://jwgl.whu.edu.cn"
+	}
+	if cfg.Campus.LibBaseURL == "" {
+		cfg.Campus.LibBaseURL = "https://seat.lib.whu.edu.cn"
+	}
+	if cfg.Campus.BusBaseURL == "" {
+		cfg.Campus.BusBaseURL = "https://bus.whu.edu.cn"
+	}
+	if cfg.Campus.CardBaseURL == "" {
+		cfg.Campus.CardBaseURL = "https://zsgx.whu.edu.cn"
+	}
+	if cfg.Campus.PrintBaseURL == "" {
+		cfg.Campus.PrintBaseURL = "https://print.lib.whu.edu.cn"
+	}
+	if cfg.Campus.GymBaseURL == "" {
+		cfg.Campus.GymBaseURL = "https://gym.whu.edu.cn"
+	}
+	if cfg.Campus.SessionTTL == "" {
+		cfg.Campus.SessionTTL = "24h"
+	}
+	if cfg.Campus.Timeout == "" {
+		cfg.Campus.Timeout = "15s"
+	}
 }
 
 // AccessTTLDuration 解析 access token 时长。
@@ -226,6 +270,24 @@ func (c *Config) ConnMaxLifetimeDuration() time.Duration {
 	d, err := time.ParseDuration(c.Database.ConnMaxLifetime)
 	if err != nil {
 		return time.Hour
+	}
+	return d
+}
+
+// CampusSessionTTLDuration 解析校园服务会话缓存 TTL。
+func (c *Config) CampusSessionTTLDuration() time.Duration {
+	d, err := time.ParseDuration(c.Campus.SessionTTL)
+	if err != nil {
+		return 24 * time.Hour
+	}
+	return d
+}
+
+// CampusTimeoutDuration 解析校园服务上游请求超时。
+func (c *Config) CampusTimeoutDuration() time.Duration {
+	d, err := time.ParseDuration(c.Campus.Timeout)
+	if err != nil {
+		return 15 * time.Second
 	}
 	return d
 }

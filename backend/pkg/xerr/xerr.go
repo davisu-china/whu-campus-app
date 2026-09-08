@@ -47,6 +47,7 @@ func (e *Error) Wrap(err error) *Error {
 //	5xxx        互动（点赞/收藏/举报）
 //	6xxx        治理/权限
 //	7xxx        通知
+//	8xxx        校园服务
 //	9xxx        系统内部
 const (
 	CodeOK = 0
@@ -67,6 +68,10 @@ const (
 	CodeForbidden          = 20006
 	CodeUserBanned         = 20007
 	CodeVerifyRequired     = 20008
+	CodeUserNotFound       = 20009 // 账号不存在
+	CodePasswordWrong      = 20010 // 密码错误
+	CodeEmailRegistered    = 20011 // 邮箱已注册
+	CodePasswordWeak       = 20012 // 密码强度不足
 
 	// 3xxx 信息架构
 	CodeBoardNotFound = 30001
@@ -86,6 +91,17 @@ const (
 	CodeNotAuthor    = 60001
 	CodeNoPermission = 60002
 
+	// 7xxx 通知/私信
+	CodeMessageSelf  = 70001 // 不能给自己发私信
+	CodeConvNotFound = 70002 // 会话不存在或无权访问
+
+	// 8xxx 校园服务
+	CodeCampusDisabled       = 80001 // 校园服务未启用
+	CodeCampusNotBound       = 80002 // 未绑定统一认证
+	CodeCampusBindFailed     = 80003 // 统一认证登录失败
+	CodeCampusSessionExpired = 80004 // 会话过期
+	CodeCampusUpstream       = 80005 // 上游系统异常
+
 	// 9xxx 系统
 	CodeDBError    = 90001
 	CodeCacheErr   = 90002
@@ -99,4 +115,9 @@ var (
 	ErrInternal     = New(CodeInternal, "系统繁忙，请稍后再试")
 	ErrUnauthorized = New(CodeUnauthorized, "未登录或登录已过期").WithHTTP(http.StatusUnauthorized)
 	ErrForbidden    = New(CodeForbidden, "无权访问").WithHTTP(http.StatusForbidden)
+
+	ErrCampusDisabled       = New(CodeCampusDisabled, "校园服务未启用")
+	ErrCampusNotBound       = New(CodeCampusNotBound, "请先绑定武大统一身份认证")
+	ErrCampusSessionExpired = New(CodeCampusSessionExpired, "校园服务会话已过期，请重新绑定")
+	ErrCampusUpstream       = New(CodeCampusUpstream, "校园服务上游系统异常，请稍后再试")
 )

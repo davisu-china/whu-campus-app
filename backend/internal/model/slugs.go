@@ -12,7 +12,7 @@ const (
 	SlugContestTeam  = "contest-team"  // 竞赛组队
 	SlugAcademic     = "academic"      // 学术讨论
 	SlugRecruit      = "recruit"       // 校招实习
-	SlugReferral     = "referral"      // 内推专区
+	SlugPartTime     = "part-time"     // 兼职信息
 	SlugJobExp       = "job-exp"       // 求职经验
 	SlugGraduate     = "graduate"      // 毕业去向
 	SlugDating       = "dating"        // 校园恋爱

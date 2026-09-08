@@ -146,6 +146,7 @@ type UpdatePostInput struct {
 	IsAnonymous bool         `json:"is_anonymous"`
 	TagIDs      []string     `json:"tag_ids"`
 	Fields      []FieldInput `json:"fields"`
+	ObjectKeys  []string     `json:"object_keys"`
 }
 
 func (s *ContentService) CreatePost(author *model.User, in CreatePostInput) (*PostView, error) {
@@ -321,6 +322,49 @@ func (s *ContentService) UpdatePost(author *model.User, id string, in UpdatePost
 			return nil, xerr.New(xerr.CodeDBError, "编辑失败").Wrap(err)
 		}
 	}
+
+	// 标签（仅 tag 型板块）：校验后整体替换
+	var tagIDs []string
+	if in.TagIDs != nil && post.Board != nil && post.Board.FieldMode == model.FieldModeTags {
+		tags, err := s.info.ListTags(post.Board.ID)
+		if err != nil {
+			return nil, xerr.New(xerr.CodeDBError, "查询标签失败").Wrap(err)
+		}
+		valid := map[string]bool{}
+		required := map[string]bool{}
+		for i := range tags {
+			valid[tags[i].ID] = true
+			if tags[i].IsRequired {
+				required[tags[i].ID] = true
+			}
+		}
+		requiredCount := 0
+		for _, tid := range in.TagIDs {
+			if !valid[tid] {
+				return nil, xerr.New(xerr.CodeTagInvalid, "标签不属于该板块")
+			}
+			if required[tid] {
+				requiredCount++
+			}
+		}
+		if len(required) > 0 && requiredCount != 1 {
+			return nil, xerr.New(xerr.CodeTagRequired, "请选择一个必选标签")
+		}
+		tagIDs = in.TagIDs
+	}
+
+	// 附件（图片）：整体替换
+	var atts []model.Attachment
+	if in.ObjectKeys != nil {
+		atts = buildAttachments(in.ObjectKeys)
+	}
+
+	if tagIDs != nil || atts != nil {
+		if err := s.content.ReplacePostDetails(post.ID, tagIDs, atts); err != nil {
+			return nil, xerr.New(xerr.CodeDBError, "编辑失败").Wrap(err)
+		}
+	}
+
 	updated, _ := s.content.GetPost(id)
 	view := s.buildPostViewDetail(updated, author.ID)
 	return &view, nil
@@ -392,7 +436,7 @@ func (s *ContentService) CreateReply(author *model.User, postID string, in Creat
 		if err != nil {
 			return nil, xerr.New(xerr.CodeReplyNotFound, "回复对象不存在")
 		}
-		reply.ParentID = parent.ID
+		reply.ParentID = &parent.ID
 		reply.FloorNo = parent.FloorNo
 	}
 
@@ -409,7 +453,7 @@ func (s *ContentService) CreateReply(author *model.User, postID string, in Creat
 		if target.PostID != postID {
 			return nil, xerr.New(xerr.CodeBadParam, "回复对象不属于当前帖子")
 		}
-		reply.ReplyToID = target.ID
+		reply.ReplyToID = &target.ID
 		parentAuthorID = target.AuthorID
 	}
 
@@ -475,10 +519,11 @@ type PresignUploadResult struct {
 	URL       string            `json:"url,omitempty"`        // 小程序：POST 表单 URL
 	Fields    map[string]string `json:"fields,omitempty"`     // 小程序：POST 表单字段
 	ObjectKey string            `json:"object_key"`
+	PublicURL string            `json:"public_url"` // 上传后的公开访问 URL
 	ExpiresIn int64             `json:"expires_in"`
 }
 
-func (s *ContentService) PresignUpload(ctx context.Context, userID, filename, client string) (*PresignUploadResult, error) {
+func (s *ContentService) PresignUpload(ctx context.Context, userID, filename, client, purpose string) (*PresignUploadResult, error) {
 	ext := strings.ToLower(filepath.Ext(filename))
 	if !imageExts[ext] {
 		return nil, xerr.New(xerr.CodeBadParam, "仅支持图片（jpg/png/webp/gif）")
@@ -486,6 +531,10 @@ func (s *ContentService) PresignUpload(ctx context.Context, userID, filename, cl
 	objectKey := userID + "/" + uuid.NewString() + ext
 	ttl := s.cfg.PresignTTLDuration()
 	bucket := s.storage.PublicImagesBucket()
+	if purpose == "avatar" {
+		bucket = s.storage.PublicAvatarsBucket()
+	}
+	publicURL := s.storage.PublicURLForBucket(bucket, objectKey)
 
 	// 微信小程序：Taro.uploadFile 仅支持 POST，走 PostPolicy 表单直传
 	if client == "miniapp" {
@@ -493,7 +542,7 @@ func (s *ContentService) PresignUpload(ctx context.Context, userID, filename, cl
 		if err != nil {
 			return nil, xerr.New(xerr.CodeStorageErr, "生成上传链接失败").Wrap(err)
 		}
-		return &PresignUploadResult{Protocol: "post", URL: url, Fields: fields, ObjectKey: objectKey, ExpiresIn: int64(ttl.Seconds())}, nil
+		return &PresignUploadResult{Protocol: "post", URL: url, Fields: fields, ObjectKey: objectKey, PublicURL: publicURL, ExpiresIn: int64(ttl.Seconds())}, nil
 	}
 
 	// Web：PUT 直传
@@ -501,7 +550,7 @@ func (s *ContentService) PresignUpload(ctx context.Context, userID, filename, cl
 	if err != nil {
 		return nil, xerr.New(xerr.CodeStorageErr, "生成上传链接失败").Wrap(err)
 	}
-	return &PresignUploadResult{Protocol: "put", UploadURL: url, ObjectKey: objectKey, ExpiresIn: int64(ttl.Seconds())}, nil
+	return &PresignUploadResult{Protocol: "put", UploadURL: url, ObjectKey: objectKey, PublicURL: publicURL, ExpiresIn: int64(ttl.Seconds())}, nil
 }
 
 // ---- 个人中心 ----
@@ -566,6 +615,7 @@ func buildPostViewList(p *model.Post) PostView {
 
 func (s *ContentService) buildPostViewDetail(p *model.Post, currentUserID string) PostView {
 	v := buildPostViewList(p)
+	v.IsMine = currentUserID != "" && p.AuthorID == currentUserID
 
 	// 结构化字段与图片
 	if len(p.Fields) == 0 {
@@ -598,12 +648,20 @@ func (s *ContentService) buildPostViewDetail(p *model.Post, currentUserID string
 	return v
 }
 
+// strOrEmpty 将可空字符串指针安全解引用为空串。
+func strOrEmpty(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 func (s *ContentService) buildReplyView(r *model.Reply, currentUserID string) ReplyView {
 	v := ReplyView{
 		ID:          r.ID,
 		PostID:      r.PostID,
-		ParentID:    r.ParentID,
-		ReplyToID:   r.ReplyToID,
+		ParentID:    strOrEmpty(r.ParentID),
+		ReplyToID:   strOrEmpty(r.ReplyToID),
 		FloorNo:     r.FloorNo,
 		Content:     r.Content,
 		IsAnonymous: r.IsAnonymous,

@@ -22,6 +22,7 @@ type PostView struct {
 	BoardName   string             `json:"board_name,omitempty"`
 	AuthorID    string             `json:"author_id,omitempty"`
 	Author      *model.UserPublic  `json:"author,omitempty"`
+	IsMine      bool               `json:"is_mine"`
 	Title       string             `json:"title"`
 	Content     string             `json:"content"`
 	Status      int                `json:"status"`

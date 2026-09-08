@@ -23,6 +23,8 @@ type UpdateMeInput struct {
 	StudentNo string `json:"student_no"`
 	College   string `json:"college"`
 	Grade     string `json:"grade"`
+	Identity  string `json:"identity"`
+	Degree    string `json:"degree"`
 	Bio       string `json:"bio"`
 }
 
@@ -60,6 +62,12 @@ func (s *UserService) UpdateMe(id string, in UpdateMeInput) (*model.User, error)
 	}
 	if in.Grade != "" {
 		fields["grade"] = in.Grade
+	}
+	if in.Identity != "" {
+		fields["identity"] = in.Identity
+	}
+	if in.Degree != "" {
+		fields["degree"] = in.Degree
 	}
 	if in.Bio != "" {
 		if len([]rune(in.Bio)) > 200 {

@@ -62,5 +62,8 @@ func Migrate(db *gorm.DB) error {
 		&model.Ban{},
 		&model.Notification{},
 		&model.ModerationLog{},
+		&model.Conversation{},
+		&model.Message{},
+		&model.BookingPlan{},
 	)
 }
