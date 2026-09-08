@@ -1,0 +1,69 @@
+// ============================================================
+// 珞珈BBS 设计 token（SCSS 变量，单源）—— 值严格对齐 UI 规范附录
+// 用法：全局样式层用 $token；组件层优先 var(--token)（见 theme.scss）
+// ============================================================
+
+// 主色 · 珞珈绿
+$green-50:  #EEF6F1;
+$green-100: #D8EBE0;
+$green-200: #B1D6C3;
+$green-300: #83BDA3;
+$green-400: #549E82;
+$green-500: #2C8063;
+$green-600: #1F6B51;
+$green-700: #185440;
+$green-800: #12402F;
+$green-900: #0B2E21;
+
+// 情绪色 · 樱花粉
+$pink-50:  #FEF4F6;
+$pink-100: #FCE6EA;
+$pink-200: #F8C7D0;
+$pink-300: #F1A0B0;
+$pink-400: #E5738B;
+$pink-500: #D44768;
+$pink-600: #B93454;
+
+// 身份色 · 鎏金
+$gold-400: #D6B36E;
+$gold-500: #C29A5B;
+$gold-600: #A87E42;
+
+// 中性 · 暖纸
+$paper:      #F8F6F1;
+$surface:    #FFFFFF;
+$surface-2:  #F2EFE8;
+$line:       #E7E2D8;
+$line-strong:#D8D2C4;
+
+// 墨色
+$ink-900: #18201B;
+$ink-700: #3B4640;
+$ink-500: #66726B;
+$ink-400: #97A09A;
+
+// 功能色
+$success: #34A26B;
+$warning: #D89B3C;
+$error:   #D65C5C;
+$info:    #5B84C4;
+
+// 圆角
+$radius-sm: 8rpx;
+$radius-md: 12rpx;
+$radius-lg: 16rpx;
+$radius-xl: 24rpx;
+
+// 间距（8pt 栅格）
+$space-1: 4rpx;
+$space-2: 8rpx;
+$space-3: 12rpx;
+$space-4: 16rpx;
+$space-5: 24rpx;
+$space-6: 32rpx;
+$space-7: 48rpx;
+
+// 阴影（带绿意暖影）
+$shadow-sm: 0 1rpx 2rpx rgba(24, 32, 27, 0.05);
+$shadow-md: 0 4rpx 12rpx rgba(24, 32, 27, 0.06);
+$shadow-lg: 0 12rpx 32rpx rgba(24, 32, 27, 0.10);

@@ -1,0 +1,60 @@
+.luo-post-card {
+  background: var(--surface);
+  border: 1rpx solid var(--line);
+  border-radius: 16rpx;
+  padding: 28rpx;
+  box-shadow: var(--shadow-sm);
+  margin-bottom: 24rpx;
+}
+.luo-post-card.is-pinned {
+  border-top: 6rpx solid var(--green-100);
+}
+
+.luo-post-tags {
+  display: flex;
+  gap: 12rpx;
+  flex-wrap: wrap;
+  margin-bottom: 14rpx;
+}
+
+.luo-post-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 8rpx;
+}
+.luo-post-title-text {
+  flex: 1;
+  font-size: 34rpx;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--ink-900);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.luo-badge-pin,
+.luo-badge-feat {
+  flex: none;
+  margin-top: 6rpx;
+  font-size: 20rpx;
+  font-weight: 600;
+  line-height: 1;
+  padding: 4rpx 10rpx;
+  border-radius: 6rpx;
+}
+.luo-badge-pin { background: var(--green-100); color: var(--green-700); }
+.luo-badge-feat { background: var(--gold-500); color: #fff; }
+
+.luo-post-meta {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  font-size: 24rpx;
+  color: var(--ink-400);
+  margin-top: 16rpx;
+}
+.luo-post-author { color: var(--ink-500); font-weight: 500; flex: none; }
+.luo-post-time { color: var(--ink-400); flex: none; }
+.luo-post-stats { margin-left: auto; font-variant-numeric: tabular-nums; }

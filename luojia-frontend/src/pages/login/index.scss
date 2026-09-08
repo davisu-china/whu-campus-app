@@ -1,0 +1,64 @@
+.login {
+  padding: 80rpx 48rpx 0;
+}
+.login-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 80rpx 0 80rpx;
+}
+.login-wordmark {
+  font-size: 72rpx;
+  font-weight: 700;
+  color: var(--ink-900);
+  margin-bottom: 20rpx;
+}
+.login-slogan {
+  font-size: 28rpx;
+  color: var(--ink-500);
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 24rpx;
+}
+.login-field {
+  background: var(--surface);
+  border: 1rpx solid var(--line);
+  border-radius: 16rpx;
+  padding: 0 28rpx;
+  height: 96rpx;
+  display: flex;
+  align-items: center;
+}
+.login-input {
+  flex: 1;
+  font-size: 30rpx;
+  color: var(--ink-900);
+}
+.login-code-row {
+  padding-right: 12rpx;
+}
+.login-code-btn {
+  flex: none;
+  padding: 12rpx 24rpx;
+  border-radius: 999rpx;
+  background: var(--green-50);
+  color: var(--green-700);
+  font-size: 26rpx;
+}
+.login-code-btn.disabled {
+  opacity: 0.5;
+}
+.login-submit {
+  width: 100%;
+  margin-top: 12rpx;
+}
+.login-agree {
+  display: block;
+  text-align: center;
+  font-size: 24rpx;
+  color: var(--ink-400);
+  margin-top: 48rpx;
+}

@@ -1,0 +1,33 @@
+// 通用 mixin
+
+// 文本省略（单行/多行）
+@mixin ellipsis($lines: 1) {
+  @if $lines == 1 {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  } @else {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: $lines;
+    overflow: hidden;
+  }
+}
+
+// 卡片（表面 + 圆角 + 阴影）
+@mixin card($radius: var(--radius-lg, 16rpx)) {
+  background: var(--surface);
+  border-radius: $radius;
+  box-shadow: var(--shadow-sm);
+}
+
+// 按钮基底
+@mixin btn-base {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-md, 12rpx);
+  font-weight: 500;
+  cursor: pointer;
+}

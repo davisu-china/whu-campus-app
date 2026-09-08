@@ -1,0 +1,25 @@
+.luo-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  height: 88rpx;
+  padding: 0 40rpx;
+  border-radius: 12rpx;
+  font-size: 30rpx;
+  font-weight: 500;
+  box-sizing: border-box;
+  transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease;
+}
+.luo-btn:active { transform: translateY(2rpx); }
+
+.luo-btn-primary { background: var(--green-500); color: #fff; box-shadow: var(--shadow-sm); }
+.luo-btn-primary:active { background: var(--green-600); box-shadow: none; }
+
+.luo-btn-secondary { background: var(--green-50); color: var(--green-700); }
+
+.luo-btn-ghost { background: transparent; color: var(--green-600); }
+
+.luo-btn-danger { background: var(--error); color: #fff; }
+
+.luo-btn.is-disabled { opacity: 0.4; pointer-events: none; }

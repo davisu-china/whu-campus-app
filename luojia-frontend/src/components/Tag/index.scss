@@ -1,0 +1,19 @@
+.luo-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 48rpx;
+  padding: 0 20rpx;
+  border-radius: 8rpx;
+  font-size: 22rpx;
+  line-height: 1;
+  flex: none;
+  box-sizing: border-box;
+}
+
+.luo-tag-tag { background: var(--green-100); color: var(--green-700); }
+
+.luo-tag-strong { background: var(--green-500); color: #fff; font-weight: 500; }
+
+.luo-tag-filter { background: var(--surface-2); color: var(--ink-500); }
+
+.luo-tag-filter-on { background: var(--green-500); color: #fff; font-weight: 500; }
