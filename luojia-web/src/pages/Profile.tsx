@@ -5,6 +5,7 @@ import { useAuthStore } from '../store/auth'
 import { usePaginatedList } from '../hooks/usePaginatedList'
 import { ProfileCard } from '../components/ProfileCard'
 import { EditProfileModal } from '../components/EditProfileModal'
+import { ChangePasswordModal } from '../components/ChangePasswordModal'
 import { PostCard } from '../components/PostCard'
 import { LoadMore } from '../components/LoadMore'
 import { EmptyState } from '../components/ui/EmptyState'
@@ -24,6 +25,7 @@ export default function Profile() {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn)
   const [params, setParams] = useSearchParams()
   const [editing, setEditing] = useState(false)
+  const [changingPwd, setChangingPwd] = useState(false)
   const tab = params.get('tab') || 'posts'
 
   if (!isLoggedIn || !user) {
@@ -44,6 +46,22 @@ export default function Profile() {
       <ProfileCard user={user} onEdit={() => setEditing(true)} />
 
       {editing && <EditProfileModal user={user} onClose={() => setEditing(false)} />}
+
+      {changingPwd && (
+        <ChangePasswordModal hasPassword={!!user.has_password} onClose={() => setChangingPwd(false)} />
+      )}
+
+      <div className="bg-surface rounded-xl border border-line/60 px-5 py-4 mb-5 flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-ink">登录密码</p>
+          <p className="mt-0.5 text-[12px] text-ink-3">
+            {user.has_password ? '已设置，可随时修改' : '尚未设置，设置后可用邮箱密码登录'}
+          </p>
+        </div>
+        <Button variant="secondary" size="sm" onClick={() => setChangingPwd(true)}>
+          {user.has_password ? '修改密码' : '设置密码'}
+        </Button>
+      </div>
 
       <div className="flex gap-1 bg-surface rounded-lg p-1 border border-line/60 mb-4">
         {TABS.map((t) => (

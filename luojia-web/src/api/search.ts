@@ -1,10 +1,28 @@
 import { request } from './request'
 import type { PageResult, Post } from './types'
 
-export function searchPosts(q: string, opts: { board_id?: string; tag_id?: string; page?: number } = {}) {
+export interface SearchOpts {
+  board_id?: string
+  tag_id?: string
+  time_range?: string // day / 3d / week / month / year
+  sort?: string // comprehensive / latest / hot / featured
+  has_image?: boolean
+  page?: number
+}
+
+export function searchPosts(q: string, opts: SearchOpts = {}) {
   return request<PageResult<Post>>({
     url: '/api/v1/search',
     data: { q, ...opts },
+    auth: false
+  })
+}
+
+// 搜索热词榜（服务端统计，两平台共用）
+export function getHotSearches(limit = 10) {
+  return request<string[]>({
+    url: '/api/v1/search/hot',
+    data: { limit },
     auth: false
   })
 }

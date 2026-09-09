@@ -6,6 +6,7 @@ interface BoardSelectProps {
   value: string // '' = 全部板块（当 allowAll 时）
   onChange: (id: string) => void
   compact?: boolean
+  pill?: boolean // 轻量 pill 样式（搜索页筛选条用）
   align?: 'left' | 'right'
   allowAll?: boolean // 是否显示「全部板块」选项（搜索用 true，发帖用 false）
   placeholder?: string // value 为空且 !allowAll 时显示
@@ -17,6 +18,7 @@ export function BoardSelect({
   value,
   onChange,
   compact,
+  pill,
   align = 'left',
   allowAll = true,
   placeholder = '请选择',
@@ -69,22 +71,59 @@ export function BoardSelect({
 
   return (
     <div ref={ref} className={cn('relative', fullWidth ? 'w-full' : 'shrink-0')}>
-      <button
-        type="button"
-        onClick={toggle}
-        className={cn(
-          'inline-flex items-center gap-1 rounded-lg transition-colors',
-          fullWidth && 'w-full justify-between',
-          compact
-            ? 'h-8 pl-3 pr-1.5 text-[13px] text-ink-2 hover:text-ink'
-            : 'h-11 px-3 border border-line bg-surface text-sm text-ink hover:border-brand/40'
-        )}
-      >
-        <span className={cn('truncate', compact ? 'max-w-[120px]' : '')}>{label}</span>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-          <path d="m6 9 6 6 6-6" />
-        </svg>
-      </button>
+      {pill ? (
+        // 轻量 pill：选中态用品牌色底，右侧带清除按钮
+        <div
+          className={cn(
+            'inline-flex items-center h-8 rounded-full border transition-colors',
+            value ? 'border-brand/30 bg-brand-soft' : 'border-line bg-surface hover:border-brand/40'
+          )}
+        >
+          <button
+            type="button"
+            onClick={toggle}
+            className={cn(
+              'inline-flex items-center gap-1 h-8 rounded-full pl-3 text-[13px] transition-colors',
+              value ? 'pr-1 text-brand-strong' : 'pr-2.5 text-ink-2 hover:text-ink'
+            )}
+          >
+            <span className="truncate max-w-[140px]">{label}</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
+          {value && allowAll && (
+            <button
+              type="button"
+              onClick={() => onChange('')}
+              aria-label="清除板块筛选"
+              title="清除板块筛选"
+              className="h-8 pl-1 pr-2.5 text-brand-strong/60 hover:text-brand-strong transition-colors"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={toggle}
+          className={cn(
+            'inline-flex items-center gap-1 rounded-lg transition-colors',
+            fullWidth && 'w-full justify-between',
+            compact
+              ? 'h-8 pl-3 pr-1.5 text-[13px] text-ink-2 hover:text-ink'
+              : 'h-11 px-3 border border-line bg-surface text-sm text-ink hover:border-brand/40'
+          )}
+        >
+          <span className={cn('truncate', compact ? 'max-w-[120px]' : '')}>{label}</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
+      )}
 
       {open && (
         <div

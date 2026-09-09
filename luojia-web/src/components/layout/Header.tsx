@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from 'react'
-import { Link, NavLink, useNavigate } from 'react-router-dom'
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../store/auth'
 import { useNotificationStore } from '../../store/notification'
 import { useMessageStore } from '../../store/message'
@@ -17,6 +17,8 @@ const navCls = ({ isActive }: { isActive: boolean }) =>
 
 export function Header() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const isSearchPage = location.pathname === '/search'
   const user = useAuthStore((s) => s.user)
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn)
   const logout = useAuthStore((s) => s.logout)
@@ -38,14 +40,25 @@ export function Header() {
     return () => document.removeEventListener('mousedown', onDoc)
   }, [])
 
-  function onSubmit(e: FormEvent) {
-    e.preventDefault()
-    const kw = q.trim()
+  function goSearch(kw: string, boardId: string) {
     const sp = new URLSearchParams()
     if (kw) sp.set('q', kw)
-    if (searchBoard) sp.set('board_id', searchBoard)
+    if (boardId) sp.set('board_id', boardId)
     const qs = sp.toString()
     navigate(qs ? `/search?${qs}` : '/search')
+  }
+
+  function onSubmit(e: FormEvent) {
+    e.preventDefault()
+    goSearch(q.trim(), searchBoard)
+  }
+
+  // 选中板块立即发起检索（已输入的关键词一并带上）；全空（清筛选且无关键词）则不跳转
+  function onBoardChange(id: string) {
+    setSearchBoard(id)
+    const kw = q.trim()
+    if (!kw && !id) return
+    goSearch(kw, id)
   }
 
   return (
@@ -68,19 +81,21 @@ export function Header() {
           </NavLink>
         </nav>
 
-        {/* Search */}
-        <form onSubmit={onSubmit} className="flex-1 max-w-md mx-auto">
-          <div className="flex items-center h-9 rounded-lg bg-black/[0.04] focus-within:bg-surface focus-within:ring-2 focus-within:ring-brand/20 transition-all">
-            <BoardSelect compact value={searchBoard} onChange={setSearchBoard} />
-            <span className="w-px h-4 bg-line/70" />
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="搜索帖子…"
-              className="flex-1 h-full px-3 bg-transparent text-sm text-ink placeholder:text-ink-3 outline-none"
-            />
-          </div>
-        </form>
+        {/* Search（搜索页已有独立搜索栏，顶栏这里隐藏避免重复） */}
+        {!isSearchPage && (
+          <form onSubmit={onSubmit} className="flex-1 max-w-md mx-auto">
+            <div className="flex items-center h-9 rounded-lg bg-black/[0.04] focus-within:bg-surface focus-within:ring-2 focus-within:ring-brand/20 transition-all">
+              <BoardSelect compact value={searchBoard} onChange={onBoardChange} />
+              <span className="w-px h-4 bg-line/70" />
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="搜索帖子…"
+                className="flex-1 h-full px-3 bg-transparent text-sm text-ink placeholder:text-ink-3 outline-none"
+              />
+            </div>
+          </form>
+        )}
 
         {/* Right */}
         <div className="ml-auto flex items-center gap-2.5 shrink-0">

@@ -19,6 +19,7 @@ export interface User {
   identity?: string
   degree?: string
   bio?: string
+  has_password?: boolean // 是否已设置登录密码
 }
 
 export interface Board {
@@ -129,6 +130,7 @@ export interface Message {
 
 export interface PageResult<T> {
   list: T[]
+  total?: number // 后端 OKPage 始终返回；缺省时回退为 list.length
   has_more: boolean
   page: number
 }

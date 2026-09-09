@@ -30,6 +30,15 @@ export function login(email: string, password: string) {
   })
 }
 
+// 修改/设置密码（需登录态）。尚未设置过密码的账号 oldPassword 可传空。
+export function changePassword(oldPassword: string, newPassword: string) {
+  return request<{ ok: boolean }>({
+    url: '/api/v1/auth/change-password',
+    method: 'POST',
+    data: { old_password: oldPassword, new_password: newPassword }
+  })
+}
+
 export function resetPassword(email: string, code: string, password: string) {
   return request<{ ok: boolean }>({
     url: '/api/v1/auth/reset-password',

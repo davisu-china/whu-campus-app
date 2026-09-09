@@ -8,6 +8,16 @@ export const SORT_OPTIONS = [
 
 export type SortKey = (typeof SORT_OPTIONS)[number]['key']
 
+// 搜索时间范围（对齐后端 time_range 参数；空串 = 不限）
+export const TIME_RANGE_OPTIONS = [
+  { key: '', label: '不限时间' },
+  { key: 'day', label: '当天' },
+  { key: '3d', label: '近三天' },
+  { key: 'week', label: '一周内' },
+  { key: 'month', label: '一个月内' },
+  { key: 'year', label: '一年内' }
+] as const
+
 // 帖子状态（对齐后端 posts.status）
 export const POST_STATUS = {
   DRAFT: 0,
