@@ -1,0 +1,9 @@
+{
+  "name": "whu-campus-app",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ]
+}
