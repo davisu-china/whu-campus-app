@@ -27,6 +27,7 @@ const (
 	SceneLogin    = "login"
 	SceneRegister = "register"
 	SceneReset    = "reset"
+	SceneBind     = "bind"
 )
 
 // EmailVerifier 邮箱验证码签发与校验。
@@ -217,6 +218,8 @@ func subjectFor(scene string) string {
 		return "【在武大】注册验证码"
 	case SceneReset:
 		return "【在武大】重置密码验证码"
+	case SceneBind:
+		return "【在武大】绑定邮箱验证码"
 	default:
 		return "【在武大】邮箱验证码"
 	}
@@ -230,6 +233,8 @@ func bodyFor(scene, code string) string {
 		action = "注册在武大账号"
 	case SceneReset:
 		action = "重置登录密码"
+	case SceneBind:
+		action = "绑定武大邮箱"
 	default:
 		action = "登录在武大"
 	}

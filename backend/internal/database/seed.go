@@ -216,7 +216,7 @@ func SeedAdminAccounts(db *gorm.DB) error {
 				return herr
 			}
 			u = model.User{
-				Email:        a.email,
+				Email:        &a.email,
 				PasswordHash: hash,
 				Nickname:     a.nickname,
 				IsVerified:   true,

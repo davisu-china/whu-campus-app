@@ -187,28 +187,59 @@ func (r *ContentRepo) ListPosts(q PostListQuery) ([]model.Post, int64, error) {
 	return list, total, err
 }
 
+// SearchQuery 搜索过滤条件。
+type SearchQuery struct {
+	Keyword   string
+	BoardID   string
+	TagID     string
+	Since     time.Time // 零值 = 不限时间
+	Sort      string    // comprehensive（默认）/ latest / hot / featured
+	OnlyImage bool      // 只看带图帖
+	Page      int
+	PageSize  int
+}
+
 // SearchPosts 关键词模糊搜索（pg_trgm + ILIKE）。
-func (r *ContentRepo) SearchPosts(keyword, boardID, tagID string, page, pageSize int) ([]model.Post, int64, error) {
-	like := "%" + keyword + "%"
+func (r *ContentRepo) SearchPosts(q SearchQuery) ([]model.Post, int64, error) {
+	like := containsLike(q.Keyword)
 	query := r.db.Model(&model.Post{}).
 		Where("status = ?", model.PostStatusPublished).
 		Where("title ILIKE ? OR content ILIKE ?", like, like)
 
-	if boardID != "" {
-		query = query.Where("board_id = ?", boardID)
+	if q.BoardID != "" {
+		query = query.Where("board_id = ?", q.BoardID)
 	}
-	if tagID != "" {
-		query = query.Where("EXISTS (SELECT 1 FROM post_tags WHERE post_tags.post_id = posts.id AND post_tags.tag_id = ?)", tagID)
+	if q.TagID != "" {
+		query = query.Where("EXISTS (SELECT 1 FROM post_tags WHERE post_tags.post_id = posts.id AND post_tags.tag_id = ?)", q.TagID)
+	}
+	if !q.Since.IsZero() {
+		query = query.Where("created_at >= ?", q.Since)
+	}
+	if q.Sort == "featured" {
+		query = query.Where("is_featured = ?", true)
+	}
+	if q.OnlyImage {
+		query = query.Where("EXISTS (SELECT 1 FROM attachments WHERE attachments.owner_type = 'post' AND attachments.owner_id = posts.id)")
 	}
 
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
+
+	// 检索场景不继承板块列表的置顶优先：时效/热度比置顶更相关。
+	order := "hot_score DESC, created_at DESC"
+	switch q.Sort {
+	case "latest":
+		order = "created_at DESC"
+	case "hot":
+		order = "reply_count DESC, created_at DESC"
+	}
+
 	var list []model.Post
 	err := query.Preload("Tags").Preload("Author").Preload("Board").
-		Order("is_pinned DESC, hot_score DESC").
-		Offset((page - 1) * pageSize).Limit(pageSize).Find(&list).Error
+		Order(order).
+		Offset((q.Page - 1) * q.PageSize).Limit(q.PageSize).Find(&list).Error
 	return list, total, err
 }
 

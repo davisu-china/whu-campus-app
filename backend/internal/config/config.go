@@ -20,6 +20,7 @@ type Config struct {
 	TencentSES TencentSESConfig `mapstructure:"tencent_ses"`
 	Upload     UploadConfig     `mapstructure:"upload"`
 	Auth       AuthConfig       `mapstructure:"auth"`
+	Wechat     WechatConfig     `mapstructure:"wechat"`
 	RateLimit  RateLimitConfig  `mapstructure:"ratelimit"`
 	Campus     CampusConfig     `mapstructure:"campus"`
 }
@@ -91,6 +92,12 @@ type UploadConfig struct {
 
 type AuthConfig struct {
 	AllowedEmailDomains []string `mapstructure:"allowed_email_domains"`
+}
+
+// WechatConfig 微信小程序登录配置。
+type WechatConfig struct {
+	AppID  string `mapstructure:"app_id"`
+	Secret string `mapstructure:"secret"`
 }
 
 type RateLimitConfig struct {

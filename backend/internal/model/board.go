@@ -23,7 +23,7 @@ type Board struct {
 // Tag 板块级标签。
 type Tag struct {
 	Base
-	BoardID       string `gorm:"type:uuid;index;uniqueIndex:uniq_board_tag_name" json:"board_id"`
+	BoardID       string `gorm:"type:uuid;uniqueIndex:uniq_board_tag_name" json:"board_id"`
 	Name          string `gorm:"size:32;uniqueIndex:uniq_board_tag_name" json:"name"`
 	IsRequired    bool   `gorm:"default:false" json:"is_required"`     // 强分类板块：必选+单选
 	IsUserCreated bool    `gorm:"default:false" json:"is_user_created"` // 用户发帖时即时创建

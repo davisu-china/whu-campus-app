@@ -72,6 +72,8 @@ const (
 	CodePasswordWrong      = 20010 // 密码错误
 	CodeEmailRegistered    = 20011 // 邮箱已注册
 	CodePasswordWeak       = 20012 // 密码强度不足
+	CodeWechatInvalid      = 20013 // 微信登录凭证无效
+	CodeWechatBindConflict = 20014 // 微信绑定冲突（邮箱已注册且临时号有内容）
 
 	// 3xxx 信息架构
 	CodeBoardNotFound = 30001

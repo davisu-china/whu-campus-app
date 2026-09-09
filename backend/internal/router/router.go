@@ -30,6 +30,7 @@ type Deps struct {
 	Storage *storage.Storage
 	Tokens  *auth.TokenManager
 	Email   *auth.EmailVerifier
+	Wechat  *auth.WechatClient
 	Matcher *filter.Matcher
 	Cfg     *config.Config
 	Log     *zap.Logger
@@ -50,7 +51,7 @@ func New(d *Deps) *gin.Engine {
 	msgRepo := repository.NewMessageRepo(d.DB)
 
 	// services
-	authSvc := service.NewAuthService(userRepo, d.Tokens, d.Email)
+	authSvc := service.NewAuthService(userRepo, d.Tokens, d.Email, d.Wechat, d.Campus, d.Cfg)
 	userSvc := service.NewUserService(userRepo, d.Cache)
 	infoSvc := service.NewInfoService(infoRepo, d.Cache)
 	contentSvc := service.NewContentService(contentRepo, infoRepo, interRepo, notifRepo, d.Cache, d.Storage, d.Matcher, d.Cfg)
@@ -116,6 +117,12 @@ func New(d *Deps) *gin.Engine {
 		middleware.RateLimit(d.Cache, "reset-password", d.Cfg.RateLimit.LoginPerMinute, time.Minute),
 		authH.ResetPassword)
 	authGroup.POST("/refresh", authH.Refresh)
+	authGroup.POST("/wechat/login",
+		middleware.RateLimit(d.Cache, "wechat-login", d.Cfg.RateLimit.LoginPerMinute, time.Minute),
+		authH.WechatLogin)
+	authGroup.POST("/sso/login",
+		middleware.RateLimit(d.Cache, "sso-login", d.Cfg.RateLimit.LoginPerMinute, time.Minute),
+		authH.SSOLogin)
 
 	// 信息架构（公开读）
 	api.GET("/categories", infoH.Categories)
@@ -132,6 +139,7 @@ func New(d *Deps) *gin.Engine {
 	api.GET("/posts/:id/replies", optAuth, contentH.ListReplies)
 	api.GET("/posts/:id/sub-replies", optAuth, contentH.FloorSubReplies)
 	api.GET("/search", optAuth, contentH.Search)
+	api.GET("/search/hot", optAuth, contentH.SearchHot)
 	api.GET("/users/:id", userH.Profile)
 	api.GET("/users/:id/posts", optAuth, contentH.UserPosts)
 
@@ -139,6 +147,9 @@ func New(d *Deps) *gin.Engine {
 	authed := api.Group("")
 	authed.Use(reqAuth)
 	{
+		authed.POST("/auth/wechat/bind-email", authH.BindEmail)
+		authed.POST("/auth/change-password", authH.ChangePassword)
+
 		authed.GET("/users/me", userH.Me)
 		authed.PUT("/users/me", userH.UpdateMe)
 		authed.GET("/users/me/posts", contentH.MyPosts)

@@ -97,6 +97,11 @@ func (c *Client) ZAdd(ctx context.Context, key string, score float64, member str
 	return c.rdb.ZAdd(ctx, key, redis.Z{Score: score, Member: member}).Err()
 }
 
+// ZIncrBy 对有序集合成员分数自增，返回自增后的分数。
+func (c *Client) ZIncrBy(ctx context.Context, key string, delta float64, member string) (float64, error) {
+	return c.rdb.ZIncrBy(ctx, key, delta, member).Result()
+}
+
 // ZRevRange 返回有序集合按分数降序的成员（含分数）。
 func (c *Client) ZRevRangeWithScores(ctx context.Context, key string, start, stop int64) ([]redis.Z, error) {
 	return c.rdb.ZRevRangeWithScores(ctx, key, start, stop).Result()

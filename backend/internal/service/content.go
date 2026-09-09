@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -660,16 +661,119 @@ func (s *ContentService) notifyReply(post *model.Post, parentAuthorID string, au
 
 // ---- 搜索 ----
 
-func (s *ContentService) Search(keyword, boardID, tagID string, page, pageSize int) ([]PostView, int64, error) {
-	keyword = strings.TrimSpace(keyword)
-	if keyword == "" {
-		return nil, 0, xerr.New(xerr.CodeBadParam, "搜索关键词不能为空")
+// SearchInput 搜索入参。TimeRange 为原始标识（day/3d/week/month/year），由 service 解析。
+type SearchInput struct {
+	Keyword   string
+	BoardID   string
+	TagID     string
+	TimeRange string
+	Sort      string // 空视为 comprehensive
+	OnlyImage bool
+	Page      int
+	PageSize  int
+}
+
+// searchSince 时间范围标识 → 起始时刻（服务器本地时区）。
+// 「当天」「近三天」按自然日算（含今天），其余按「此刻往前推」。
+func searchSince(r string) (time.Time, error) {
+	now := time.Now()
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	switch r {
+	case "", "all":
+		return time.Time{}, nil
+	case "day":
+		return midnight, nil
+	case "3d":
+		return midnight.AddDate(0, 0, -2), nil
+	case "week":
+		return now.AddDate(0, 0, -7), nil
+	case "month":
+		return now.AddDate(0, -1, 0), nil
+	case "year":
+		return now.AddDate(-1, 0, 0), nil
 	}
-	posts, total, err := s.content.SearchPosts(keyword, boardID, tagID, page, pageSize)
+	return time.Time{}, xerr.New(xerr.CodeBadParam, "未知的时间范围")
+}
+
+func (s *ContentService) Search(ctx context.Context, in SearchInput) ([]PostView, int64, error) {
+	in.Keyword = strings.TrimSpace(in.Keyword)
+	in.BoardID = strings.TrimSpace(in.BoardID)
+	in.TagID = strings.TrimSpace(in.TagID)
+	// 允许「仅板块 / 仅标签 / 仅时间 / 仅带图」检索（板块内浏览、全站按时间或带图筛选）；
+	// 全部条件都空则无从检索。
+	if in.Keyword == "" && in.BoardID == "" && in.TagID == "" && in.TimeRange == "" && !in.OnlyImage {
+		return nil, 0, xerr.New(xerr.CodeBadParam, "请输入关键词或选择筛选条件")
+	}
+	switch in.Sort {
+	case "", "comprehensive", "latest", "hot", "featured":
+	default:
+		return nil, 0, xerr.New(xerr.CodeBadParam, "未知排序方式")
+	}
+	since, err := searchSince(in.TimeRange)
+	if err != nil {
+		return nil, 0, err
+	}
+	if in.Keyword != "" {
+		s.recordHotSearch(ctx, in.Keyword)
+	}
+	posts, total, err := s.content.SearchPosts(repository.SearchQuery{
+		Keyword:   in.Keyword,
+		BoardID:   in.BoardID,
+		TagID:     in.TagID,
+		Since:     since,
+		Sort:      in.Sort,
+		OnlyImage: in.OnlyImage,
+		Page:      in.Page,
+		PageSize:  in.PageSize,
+	})
 	if err != nil {
 		return nil, 0, xerr.New(xerr.CodeDBError, "搜索失败").Wrap(err)
 	}
 	return mapPostsToViews(posts), total, nil
+}
+
+// hotSearchMaxRunes 热词最长保留字符数，避免超长输入污染榜单。
+const hotSearchMaxRunes = 30
+
+// recordHotSearch 记一次关键词搜索。fire-and-forget：独立短超时，出错不影响检索。
+func (s *ContentService) recordHotSearch(ctx context.Context, kw string) {
+	if s.cache == nil {
+		return
+	}
+	kw = strings.TrimSpace(kw)
+	if r := []rune(kw); len(r) > hotSearchMaxRunes {
+		kw = string(r[:hotSearchMaxRunes])
+	}
+	if kw == "" {
+		return
+	}
+	// 脱离请求生命周期，避免响应返回后 ctx 被取消导致写入丢失
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 500*time.Millisecond)
+	defer cancel()
+	_, _ = s.cache.ZIncrBy(rctx, cache.HotSearchKey(), 1, kw)
+}
+
+// HotSearches 返回搜索热词榜（按搜索次数降序），最多 limit 条。
+func (s *ContentService) HotSearches(ctx context.Context, limit int) ([]string, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	out := make([]string, 0, limit)
+	if s.cache == nil {
+		return out, nil
+	}
+	zs, err := s.cache.ZRevRangeWithScores(ctx, cache.HotSearchKey(), 0, int64(limit-1))
+	if err != nil {
+		return nil, xerr.ErrInternal.Wrap(err)
+	}
+	for _, z := range zs {
+		member, ok := z.Member.(string)
+		if !ok || member == "" {
+			continue
+		}
+		out = append(out, member)
+	}
+	return out, nil
 }
 
 // ---- 上传 ----

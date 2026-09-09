@@ -5,10 +5,11 @@ type User struct {
 	Base
 	Nickname     string  `gorm:"size:32" json:"nickname"`
 	AvatarURL    string  `gorm:"type:text" json:"avatar_url"`
-	Email        string  `gorm:"size:128;uniqueIndex" json:"email"`
+	Email        *string `gorm:"size:128;uniqueIndex" json:"email"`
 	Phone        *string `gorm:"size:20;uniqueIndex" json:"-"`     // 预留（可空，空即 NULL）
 	WechatOpenID *string `gorm:"size:64;uniqueIndex" json:"-"`     // 预留（可空，空即 NULL）
-	PasswordHash string  `gorm:"size:255" json:"-"`                // 预留
+	CasSubject   *string `gorm:"size:64;uniqueIndex" json:"-"`     // 武大统一身份（学号/工号），稳定关联键
+	PasswordHash string  `gorm:"size:255" json:"-"`                // bcrypt 哈希，不落明文
 	IsVerified   bool    `gorm:"default:false" json:"is_verified"` // 武大认证标记
 	StudentNo    *string `gorm:"size:32;uniqueIndex" json:"student_no"`
 	College      string  `gorm:"size:64" json:"college"`
@@ -18,6 +19,9 @@ type User struct {
 	Bio          string  `gorm:"size:200" json:"bio"`
 	Role         int     `gorm:"type:smallint;default:1" json:"role"`
 	Status       int     `gorm:"type:smallint;default:0" json:"status"`
+
+	// HasPassword 是否已设置登录密码（计算字段，不入库）。前端据此显示「设置密码」或「修改密码」。
+	HasPassword bool `gorm:"-" json:"has_password"`
 }
 
 // UserPublic 对外展示的用户信息（不含邮箱/手机号等敏感字段）。

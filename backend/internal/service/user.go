@@ -39,6 +39,7 @@ func (s *UserService) Me(id string) (*model.User, error) {
 	if err != nil {
 		return nil, xerr.New(xerr.CodeNotFound, "用户不存在")
 	}
+	u.HasPassword = u.PasswordHash != ""
 	return u, nil
 }
 

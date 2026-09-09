@@ -93,7 +93,7 @@ func (r *InfoRepo) ListHotTags(boardID string, since time.Time, limit int) ([]Ho
 func (r *InfoRepo) SearchDict(dictType, q string, limit int) ([]model.DictItem, error) {
 	var list []model.DictItem
 	err := r.db.Where("dict_type = ? AND status = ? AND name ILIKE ?",
-		dictType, model.StatusEnabled, q+"%").
+		dictType, model.StatusEnabled, prefixLike(q)).
 		Order("name ASC").Limit(limit).Find(&list).Error
 	return list, err
 }

@@ -47,16 +47,22 @@ func New(st *store.Store, cfg *config.Config) *Service {
 	}
 }
 
-// Bind 用户绑定统一认证：登录 CAS 拿会话并落 Redis。密码用后即弃，不落库不落日志。
-func (s *Service) Bind(ctx context.Context, userID, username, password string) error {
+// Login 用学号+密码登录武大统一认证，返回 CAS 会话 cookie。密码用后即弃，不落库不落日志。
+// 供「绑定校园服务」与「武大统一登录」共用。
+func (s *Service) Login(ctx context.Context, username, password string) (map[string]string, error) {
 	if !s.cfg.Campus.Enabled {
-		return xerr.ErrCampusDisabled
+		return nil, xerr.ErrCampusDisabled
 	}
 	client := cas.New(s.cfg.Campus.CASBaseURL, s.cfg.CampusTimeoutDuration())
 	cookies, err := client.Login(ctx, username, password)
 	if err != nil {
-		return xerr.New(xerr.CodeCampusBindFailed, "武大统一认证登录失败，请检查学号与密码").Wrap(err)
+		return nil, xerr.New(xerr.CodeCampusBindFailed, "武大统一认证登录失败，请检查学号与密码").Wrap(err)
 	}
+	return cookies, nil
+}
+
+// SaveSession 保存统一认证会话（供后续子系统 SSO 复用）。
+func (s *Service) SaveSession(ctx context.Context, userID, username string, cookies map[string]string) error {
 	return s.store.Save(ctx, &model.Session{
 		UserID:   userID,
 		System:   model.SystemCAS,
@@ -64,6 +70,15 @@ func (s *Service) Bind(ctx context.Context, userID, username, password string) e
 		Cookies:  cookies,
 		BoundAt:  time.Now().Unix(),
 	})
+}
+
+// Bind 用户绑定统一认证：登录 CAS 拿会话并落 Redis。
+func (s *Service) Bind(ctx context.Context, userID, username, password string) error {
+	cookies, err := s.Login(ctx, username, password)
+	if err != nil {
+		return err
+	}
+	return s.SaveSession(ctx, userID, username, cookies)
 }
 
 // Status 返回各子系统绑定状态（含已绑定的用户名）。

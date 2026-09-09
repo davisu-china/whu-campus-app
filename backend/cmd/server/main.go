@@ -43,8 +43,8 @@ func main() {
 	if err := database.Migrate(db); err != nil {
 		logger.Fatal("数据库迁移失败", zap.Error(err))
 	}
-	if err := database.EnsureSearchIndexes(db); err != nil {
-		logger.Warn("创建搜索索引失败（pg_trgm 可能不可用）", zap.Error(err))
+	if err := database.EnsureIndexes(db); err != nil {
+		logger.Warn("创建性能索引失败（pg_trgm 可能不可用）", zap.Error(err))
 	}
 	if err := database.Seed(db); err != nil {
 		logger.Fatal("初始化种子数据失败", zap.Error(err))
@@ -74,6 +74,7 @@ func main() {
 	// 认证
 	tokens := auth.NewTokenManager(cfg.JWT)
 	email := auth.NewEmailVerifier(rc, cfg, logger)
+	wechat := auth.NewWechatClient(cfg.Wechat)
 
 	// 敏感词过滤
 	govRepo := repository.NewGovernanceRepo(db)
@@ -103,6 +104,7 @@ func main() {
 		Storage:    st,
 		Tokens:     tokens,
 		Email:      email,
+		Wechat:     wechat,
 		Matcher:    matcher,
 		Cfg:        cfg,
 		Log:        logger,

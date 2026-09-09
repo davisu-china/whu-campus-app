@@ -7,3 +7,14 @@ scratch/
 
 # APK 反编译产物（体积大、含第三方包），勿提交
 *.apk
+
+# Node
+node_modules/
+npm-debug.log*
+*.log
+
+# Expo / RN
+.expo/
+web-build/
+dist/
+*.tsbuildinfo

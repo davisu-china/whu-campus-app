@@ -5,21 +5,21 @@ import "time"
 // Post 帖子。
 type Post struct {
 	Base
-	BoardID     string     `gorm:"type:uuid;index:idx_board_status_created" json:"board_id"`
-	AuthorID    string     `gorm:"type:uuid;index" json:"author_id"`
+	BoardID     string     `gorm:"type:uuid" json:"board_id"`
+	AuthorID    string     `gorm:"type:uuid" json:"author_id"`
 	Title       string     `gorm:"size:120" json:"title"`
 	Content     string     `gorm:"type:text" json:"content"`
-	Status      int        `gorm:"type:smallint;default:0;index:idx_board_status_created" json:"status"`
+	Status      int        `gorm:"type:smallint;default:0" json:"status"`
 	IsAnonymous bool       `gorm:"default:false" json:"is_anonymous"`
 	IsPinned    bool       `gorm:"default:false" json:"is_pinned"`
 	IsFeatured  bool       `gorm:"default:false" json:"is_featured"`
 	ViewCount   int64      `gorm:"default:0" json:"view_count"`
 	ReplyCount  int        `gorm:"default:0" json:"reply_count"`
 	LikeCount   int        `gorm:"default:0" json:"like_count"`
-	HotScore    float64    `gorm:"type:numeric(20,6);default:0;index" json:"hot_score"`
+	HotScore    float64    `gorm:"type:numeric(20,6);default:0" json:"hot_score"`
 	PinnedAt    *time.Time `json:"pinned_at,omitempty"`
 	FeaturedAt  *time.Time `json:"featured_at,omitempty"`
-	CreatedAt   time.Time  `gorm:"index:idx_board_status_created,sort:desc" json:"created_at"`
+	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
 
 	// 关联（查询时预加载）
@@ -47,7 +47,7 @@ type PostField struct {
 type Reply struct {
 	Base
 	PostID      string    `gorm:"type:uuid;index:idx_post_floor" json:"post_id"`
-	AuthorID    string    `gorm:"type:uuid;index" json:"author_id"`
+	AuthorID    string    `gorm:"type:uuid" json:"author_id"`
 	ParentID    *string   `gorm:"type:uuid" json:"parent_id"`   // 楼中楼：父回复 ID（顶层为 nil → NULL）
 	ReplyToID   *string   `gorm:"type:uuid" json:"reply_to_id"` // 被回复回复 ID（@ 对象，顶层为 nil）
 	FloorNo     int       `gorm:"index:idx_post_floor" json:"floor_no"`
@@ -66,7 +66,7 @@ type Reply struct {
 type Attachment struct {
 	Base
 	OwnerType string `gorm:"size:16" json:"owner_type"` // post / reply
-	OwnerID   string `gorm:"type:uuid;index" json:"owner_id"`
+	OwnerID   string `gorm:"type:uuid" json:"owner_id"`
 	ObjectKey string `gorm:"type:text" json:"object_key"`
 	Sort      int    `gorm:"default:0" json:"sort"`
 }

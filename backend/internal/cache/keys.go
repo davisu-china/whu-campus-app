@@ -42,3 +42,6 @@ func BoardPostsKey(boardID, sort, tagID string, page, pageSize int) string {
 }
 
 func ViewPendingKey() string { return "view:pending" }
+
+// HotSearchKey 搜索热词榜（ZSET：member=关键词，score=搜索次数）。
+func HotSearchKey() string { return "content:search_hot" }

@@ -156,15 +156,47 @@ func (h *ContentHandler) CreateReply(c *gin.Context) {
 
 func (h *ContentHandler) Search(c *gin.Context) {
 	page, size := pageParams(c)
-	q := c.Query("q")
-	boardID := c.Query("board_id")
-	tagID := c.Query("tag_id")
-	list, total, err := h.svc.Search(q, boardID, tagID, page, size)
+	hasImage := c.Query("has_image")
+	list, total, err := h.svc.Search(c.Request.Context(), service.SearchInput{
+		Keyword:   c.Query("q"),
+		BoardID:   c.Query("board_id"),
+		TagID:     c.Query("tag_id"),
+		TimeRange: c.Query("time_range"),
+		Sort:      c.Query("sort"),
+		OnlyImage: hasImage == "1" || hasImage == "true",
+		Page:      page,
+		PageSize:  size,
+	})
 	if err != nil {
 		response.Fail(c, err)
 		return
 	}
 	response.OKPage(c, list, total, page, size)
+}
+
+// SearchHot 返回搜索热词榜（公开）。
+func (h *ContentHandler) SearchHot(c *gin.Context) {
+	limit := 10
+	if v := c.Query("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			response.Fail(c, xerr.ErrBadParam)
+			return
+		}
+		limit = n
+	}
+	if limit < 1 {
+		limit = 10
+	}
+	if limit > 20 {
+		limit = 20
+	}
+	list, err := h.svc.HotSearches(c.Request.Context(), limit)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, list)
 }
 
 func (h *ContentHandler) PresignUpload(c *gin.Context) {

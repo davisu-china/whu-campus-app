@@ -37,13 +37,13 @@ type Ban struct {
 // Notification 通知。
 type Notification struct {
 	Base
-	UserID    string    `gorm:"type:uuid;index:idx_user_read_created" json:"user_id"`
+	UserID    string    `gorm:"type:uuid" json:"user_id"`
 	Type      string    `gorm:"size:16" json:"type"` // reply/mention/like/system
 	Title     string    `gorm:"size:100" json:"title"`
 	Content   string    `gorm:"size:500" json:"content"`
 	RelatedID string    `gorm:"type:uuid" json:"related_id"`
-	IsRead    bool      `gorm:"default:false;index:idx_user_read_created" json:"is_read"`
-	CreatedAt time.Time `gorm:"index:idx_user_read_created,sort:desc" json:"created_at"`
+	IsRead    bool      `gorm:"default:false" json:"is_read"`
+	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"-"`
 }
 

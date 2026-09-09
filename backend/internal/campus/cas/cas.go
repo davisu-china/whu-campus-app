@@ -50,6 +50,9 @@ func New(baseURL string, timeout time.Duration) *Client {
 //
 // 以下字段名/流程基于标准 Apereo CAS 与已抓取的 encrypt.js，真实联调时需以
 // 武大实际登录页为准校准（见各 extract/encrypt 处的「待联调」注释）。
+//
+// 已知待联调项：登录页含 captcha/dynamicCode 字段（用户名失焦时 checkUserCaptcha()
+// 决定是否要求验证码）。若线上强制验证码，此处需补验证码获取与求解步骤。
 func (c *Client) Login(ctx context.Context, username, password string) (map[string]string, error) {
 	loginURL := c.baseURL + "/authserver/login"
 
@@ -79,12 +82,15 @@ func (c *Client) Login(ctx context.Context, username, password string) (map[stri
 		return nil, fmt.Errorf("encrypt password: %w", err)
 	}
 
-	// 2. 组装登录表单。
+	// 2. 组装登录表单（对齐 whuThemeNew1 的 pwdFromId 表单）。
+	// cllt/dllt 决定 CAS 走哪种认证处理器：账号密码登录固定为 userNameLogin + generalLogin。
 	form := url.Values{}
 	form.Set("username", username)
 	form.Set("password", encrypted)
 	form.Set("lt", extractHidden(html, "lt"))
 	form.Set("execution", extractHidden(html, "execution"))
+	form.Set("cllt", "userNameLogin")
+	form.Set("dllt", "generalLogin")
 	form.Set("_eventId", "submit")
 	form.Set("rmShown", "1")
 
@@ -206,15 +212,21 @@ func pkcs7Pad(data []byte, blockSize int) []byte {
 }
 
 var (
-	saltRe   = regexp.MustCompile(`(?i)pwdEncryptSalt\s*=\s*["']([^"']+)["']`)
-	hiddenRe = regexp.MustCompile(`(?i)<input[^>]+name=["']([^"']+)["'][^>]*value=["']([^"']*)["']`)
+	// 线上页面为 <input type="hidden" id="pwdEncryptSalt" value="xxx" />（只有 id，没有 name），
+	// 故按 id 取；下面两条覆盖 id/value 属性顺序颠倒的写法。
+	saltIDRe  = regexp.MustCompile(`(?i)<input[^>]*id=["']pwdEncryptSalt["'][^>]*value=["']([^"']*)["']`)
+	saltIDRe2 = regexp.MustCompile(`(?i)<input[^>]*value=["']([^"']*)["'][^>]*id=["']pwdEncryptSalt["']`)
+	saltJSRe  = regexp.MustCompile(`(?i)pwdEncryptSalt\s*[=:]\s*["']([^"']+)["']`) // 兜底：JS 赋值式
+	hiddenRe  = regexp.MustCompile(`(?i)<input[^>]+name=["']([^"']+)["'][^>]*value=["']([^"']*)["']`)
+	hiddenRe2 = regexp.MustCompile(`(?i)<input[^>]+value=["']([^"']*)["'][^>]*name=["']([^"']+)["']`)
 )
 
-// extractSalt 从登录页 HTML 提取 pwdEncryptSalt（待联调：盐在页面中的具体位置）。
+// extractSalt 从登录页 HTML 提取 pwdEncryptSalt。
 func extractSalt(html string) string {
-	m := saltRe.FindStringSubmatch(html)
-	if len(m) > 1 {
-		return m[1]
+	for _, re := range []*regexp.Regexp{saltIDRe, saltIDRe2, saltJSRe} {
+		if m := re.FindStringSubmatch(html); len(m) > 1 && m[1] != "" {
+			return m[1]
+		}
 	}
 	return ""
 }
@@ -225,6 +237,11 @@ func extractHidden(html, name string) string {
 	for _, m := range hiddenRe.FindAllStringSubmatch(html, -1) {
 		if len(m) >= 3 && m[1] == name {
 			return m[2]
+		}
+	}
+	for _, m := range hiddenRe2.FindAllStringSubmatch(html, -1) {
+		if len(m) >= 3 && m[2] == name {
+			return m[1]
 		}
 	}
 	return ""

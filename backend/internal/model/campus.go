@@ -21,7 +21,7 @@ type BookingPlan struct {
 	Date       string    `gorm:"size:16" json:"date"`      // yyyy-MM-dd
 	StartTime  string    `gorm:"size:8" json:"start_time"` // HH:mm
 	EndTime    string    `gorm:"size:8" json:"end_time"`   // HH:mm
-	BookAt     time.Time `gorm:"index" json:"book_at"`     // 触发预约的时间点
+	BookAt     time.Time `json:"book_at"`                  // 触发预约的时间点
 	Status     int       `gorm:"type:smallint;default:0" json:"status"`
 	LastResult string    `gorm:"size:200" json:"last_result"` // 最近一次执行结果
 }
