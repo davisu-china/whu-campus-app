@@ -55,6 +55,9 @@ func main() {
 	if err := database.SeedColleges(db); err != nil {
 		logger.Fatal("初始化院系词典失败", zap.Error(err))
 	}
+	if err := database.SeedBoardStarterTags(db); err != nil {
+		logger.Fatal("初始化板块标签模式失败", zap.Error(err))
+	}
 
 	// Redis
 	rc := cache.New(cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB)

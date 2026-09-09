@@ -29,6 +29,20 @@ const FEATURES: Feature[] = [
 
 export default function Campus() {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn)
+  const [status, setStatus] = useState<CampusStatus | null>(null)
+  const [casOpen, setCasOpen] = useState(false)
+
+  const loadStatus = useCallback(async () => {
+    try {
+      setStatus(await getCasStatus())
+    } catch {
+      // request 层已 toast
+    }
+  }, [])
+
+  useEffect(() => {
+    if (isLoggedIn) loadStatus()
+  }, [isLoggedIn, loadStatus])
 
   return (
     <div>
@@ -39,8 +53,9 @@ export default function Campus() {
 
       {isLoggedIn ? (
         <>
-          <CasBinding />
+          <CasStatusBar status={status} onOpen={() => setCasOpen(true)} />
           <FeatureGrid />
+          {casOpen && <CasModal status={status} onClose={() => setCasOpen(false)} onChanged={loadStatus} />}
         </>
       ) : (
         <EmptyState
@@ -57,25 +72,54 @@ export default function Campus() {
   )
 }
 
-function CasBinding() {
-  const [status, setStatus] = useState<CampusStatus | null>(null)
+// 紧凑的认证状态条，替代原来占满整行的绑定卡片。
+function CasStatusBar({ status, onOpen }: { status: CampusStatus | null; onOpen: () => void }) {
+  const bound = status?.cas.bound ?? false
+  return (
+    <div className="flex items-center justify-between gap-3 bg-surface rounded-xl border border-line/60 px-4 py-3 mb-6">
+      <div className="flex items-center gap-3 min-w-0">
+        <span className="w-9 h-9 rounded-lg bg-brand-soft flex items-center justify-center text-base shrink-0">🔐</span>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-ink">武大统一认证</p>
+          <p className="text-[12px] text-ink-3 truncate">
+            {status === null
+              ? '加载中…'
+              : bound
+                ? `已绑定学号 ${status.cas.username}`
+                : '绑定后即可使用课表、成绩、图书馆等服务'}
+          </p>
+        </div>
+      </div>
+      <Button variant={bound ? 'ghost' : 'primary'} size="sm" onClick={onOpen} className="shrink-0">
+        {bound ? '管理' : '去绑定'}
+      </Button>
+    </div>
+  )
+}
+
+// 绑定/解绑统一认证的弹窗。
+function CasModal({
+  status,
+  onClose,
+  onChanged
+}: {
+  status: CampusStatus | null
+  onClose: () => void
+  onChanged: () => Promise<void>
+}) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
-
-  const refresh = useCallback(async () => {
-    try {
-      setStatus(await getCasStatus())
-    } catch {
-      // request 层已 toast
-    }
-  }, [])
-
-  useEffect(() => {
-    refresh()
-  }, [refresh])
-
   const bound = status?.cas.bound ?? false
+
+  // 按 Esc 关闭
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
 
   async function onBind(e: FormEvent) {
     e.preventDefault()
@@ -89,7 +133,7 @@ function CasBinding() {
       toast('统一认证绑定成功')
       setUsername('')
       setPassword('')
-      await refresh()
+      await onChanged()
     } catch {
       // request 层已 toast
     } finally {
@@ -102,7 +146,7 @@ function CasBinding() {
     try {
       await unbindCas()
       toast('已解绑统一认证')
-      await refresh()
+      await onChanged()
     } catch {
       // request 层已 toast
     } finally {
@@ -111,66 +155,68 @@ function CasBinding() {
   }
 
   return (
-    <section className="bg-surface rounded-xl border border-line/60 p-5 mb-6">
-      <div className="flex items-center gap-2 mb-4">
-        <span className="w-9 h-9 rounded-lg bg-brand-soft flex items-center justify-center text-lg">🔐</span>
-        <div>
-          <h2 className="font-semibold text-ink">武大统一身份认证</h2>
-          <p className="text-[12px] text-ink-3">绑定后即可使用下方各项校园服务</p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-md bg-surface rounded-2xl border border-line/60 shadow-card p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between mb-1">
+          <h2 className="text-lg font-bold text-ink">武大统一认证</h2>
+          <button onClick={onClose} className="text-ink-3 hover:text-ink transition-colors text-xl leading-none" aria-label="关闭">
+            ×
+          </button>
         </div>
-        {bound && (
-          <span className="ml-auto text-[12px] text-brand-strong bg-brand-soft rounded-full px-2.5 py-1">已绑定</span>
+        <p className="text-[13px] text-ink-3 mb-5">绑定后即可使用课表、成绩、图书馆等校园服务</p>
+
+        {status === null ? (
+          <div className="flex items-center gap-2 text-sm text-ink-3 py-6">
+            <Spinner className="w-4 h-4" /> 加载中…
+          </div>
+        ) : bound ? (
+          <div className="space-y-4">
+            <div className="bg-black/[0.02] rounded-lg px-4 py-3">
+              <p className="text-sm text-ink-2">
+                已绑定学号 <span className="font-medium text-ink">{status.cas.username}</span>
+              </p>
+              <p className="text-[12px] text-ink-3 mt-0.5">凭统一认证会话访问各服务，密码不会在服务器保存</p>
+            </div>
+            <Button variant="ghost" block onClick={onUnbind} loading={submitting}>
+              解绑
+            </Button>
+          </div>
+        ) : (
+          <form onSubmit={onBind} className="space-y-3">
+            <div>
+              <label className="block text-sm font-medium text-ink-2 mb-1.5">学号</label>
+              <input
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="如 2021301234567"
+                autoComplete="username"
+                className={inputCls}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-ink-2 mb-1.5">统一身份认证密码</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="信息门户 / 教务系统登录密码"
+                autoComplete="current-password"
+                className={inputCls}
+              />
+            </div>
+            <p className="text-[12px] text-ink-3 leading-snug">
+              密码仅用于本次登录武大统一认证换取会话，服务器不存储、不记录，请放心使用。
+            </p>
+            <Button type="submit" block loading={submitting}>
+              绑定
+            </Button>
+          </form>
         )}
       </div>
-
-      {status === null ? (
-        <div className="flex items-center gap-2 text-sm text-ink-3 py-2">
-          <Spinner className="w-4 h-4" /> 加载中…
-        </div>
-      ) : bound ? (
-        <div className="flex items-center justify-between bg-black/[0.02] rounded-lg px-4 py-3">
-          <div>
-            <p className="text-sm text-ink-2">
-              已绑定学号 <span className="font-medium text-ink">{status.cas.username}</span>
-            </p>
-            <p className="text-[12px] text-ink-3 mt-0.5">凭统一认证会话访问各服务，密码不会在服务器保存</p>
-          </div>
-          <Button variant="ghost" size="sm" onClick={onUnbind} loading={submitting}>
-            解绑
-          </Button>
-        </div>
-      ) : (
-        <form onSubmit={onBind} className="space-y-3">
-          <div>
-            <label className="block text-sm font-medium text-ink-2 mb-1.5">学号</label>
-            <input
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="如 2021301234567"
-              autoComplete="username"
-              className={inputCls}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-ink-2 mb-1.5">统一身份认证密码</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="信息门户 / 教务系统登录密码"
-              autoComplete="current-password"
-              className={inputCls}
-            />
-          </div>
-          <p className="text-[12px] text-ink-3 leading-snug">
-            密码仅用于本次登录武大统一认证换取会话，服务器不存储、不记录，请放心使用。
-          </p>
-          <Button type="submit" block loading={submitting}>
-            绑定
-          </Button>
-        </form>
-      )}
-    </section>
+    </div>
   )
 }
 
@@ -178,7 +224,7 @@ function FeatureGrid() {
   return (
     <div>
       <h2 className="text-[15px] font-semibold text-ink mb-3">全部服务</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {FEATURES.map((f) => {
           const body = (
             <>

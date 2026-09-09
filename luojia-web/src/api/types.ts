@@ -39,6 +39,13 @@ export interface Tag {
   id: string
   name: string
   is_required: boolean
+  is_user_created?: boolean
+}
+
+export interface HotTag {
+  tag_id: string
+  name: string
+  post_count: number
 }
 
 export interface PostField {
@@ -89,6 +96,7 @@ export interface Reply {
   like_count: number
   created_at: string
   liked?: boolean
+  sub_count?: number
   children?: Reply[]
 }
 

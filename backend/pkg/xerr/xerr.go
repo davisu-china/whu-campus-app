@@ -77,6 +77,7 @@ const (
 	CodeBoardNotFound = 30001
 	CodeTagInvalid    = 30002
 	CodeTagRequired   = 30003
+	CodeTagTooMany    = 30004 // 标签数量超限
 
 	// 4xxx 内容
 	CodePostNotFound   = 40001

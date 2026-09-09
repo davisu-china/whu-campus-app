@@ -6,6 +6,7 @@ export interface CreatePostInput {
   title: string
   content: string
   tag_ids?: string[]
+  tag_names?: string[]
   is_anonymous?: boolean
   fields?: PostField[]
   object_keys?: string[]
@@ -35,6 +36,7 @@ export interface UpdatePostInput {
   title: string
   content: string
   tag_ids?: string[]
+  tag_names?: string[]
   is_anonymous?: boolean
   fields?: PostField[]
   object_keys?: string[]
@@ -48,8 +50,20 @@ export function deletePost(id: string) {
   return request<{ ok: boolean }>({ url: `/api/v1/posts/${id}`, method: 'DELETE' })
 }
 
-export function getReplies(postId: string) {
-  return request<Reply[]>({ url: `/api/v1/posts/${postId}/replies`, auth: false })
+export function getReplies(postId: string, page: number, pageSize = 20) {
+  return request<PageResult<Reply>>({
+    url: `/api/v1/posts/${postId}/replies`,
+    auth: false,
+    data: { page, page_size: pageSize }
+  })
+}
+
+export function getSubReplies(postId: string, floorNo: number) {
+  return request<Reply[]>({
+    url: `/api/v1/posts/${postId}/sub-replies`,
+    auth: false,
+    data: { floor_no: floorNo }
+  })
 }
 
 export function createReply(

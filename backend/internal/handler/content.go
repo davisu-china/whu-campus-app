@@ -111,7 +111,23 @@ func (h *ContentHandler) DeletePost(c *gin.Context) {
 }
 
 func (h *ContentHandler) ListReplies(c *gin.Context) {
-	list, err := h.svc.ListReplies(c.Param("id"), middleware.CurrentUserID(c))
+	page, size := pageParams(c)
+	list, total, err := h.svc.ListReplies(c.Param("id"), middleware.CurrentUserID(c), page, size)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OKPage(c, list, total, page, size)
+}
+
+// FloorSubReplies 懒加载某楼层下的楼中楼。
+func (h *ContentHandler) FloorSubReplies(c *gin.Context) {
+	floorNo, err := strconv.Atoi(c.Query("floor_no"))
+	if err != nil || floorNo <= 0 {
+		response.Fail(c, xerr.ErrBadParam)
+		return
+	}
+	list, err := h.svc.FloorSubReplies(c.Param("id"), floorNo, middleware.CurrentUserID(c))
 	if err != nil {
 		response.Fail(c, err)
 		return

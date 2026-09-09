@@ -1,8 +1,10 @@
 package service
 
 import (
+	"context"
 	"strings"
 
+	"github.com/whu-campus/luojia-bbs/internal/cache"
 	"github.com/whu-campus/luojia-bbs/internal/model"
 	"github.com/whu-campus/luojia-bbs/internal/repository"
 	"github.com/whu-campus/luojia-bbs/pkg/xerr"
@@ -12,9 +14,12 @@ import (
 // UserService 用户资料。
 type UserService struct {
 	users *repository.UserRepo
+	cache *cache.Client
 }
 
-func NewUserService(users *repository.UserRepo) *UserService { return &UserService{users: users} }
+func NewUserService(users *repository.UserRepo, c *cache.Client) *UserService {
+	return &UserService{users: users, cache: c}
+}
 
 // UpdateMeInput 资料更新入参。
 type UpdateMeInput struct {
@@ -80,6 +85,8 @@ func (s *UserService) UpdateMe(id string, in UpdateMeInput) (*model.User, error)
 		if err := s.users.Update(u, fields); err != nil {
 			return nil, xerr.New(xerr.CodeDBError, "更新失败").Wrap(err)
 		}
+		// 失效用户缓存，使下一次鉴权回源 DB 读取最新资料。
+		_ = s.cache.Del(context.Background(), cache.UserKey(id))
 	}
 	return s.users.FindByID(id)
 }

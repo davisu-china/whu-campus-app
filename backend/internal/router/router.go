@@ -51,13 +51,13 @@ func New(d *Deps) *gin.Engine {
 
 	// services
 	authSvc := service.NewAuthService(userRepo, d.Tokens, d.Email)
-	userSvc := service.NewUserService(userRepo)
-	infoSvc := service.NewInfoService(infoRepo)
+	userSvc := service.NewUserService(userRepo, d.Cache)
+	infoSvc := service.NewInfoService(infoRepo, d.Cache)
 	contentSvc := service.NewContentService(contentRepo, infoRepo, interRepo, notifRepo, d.Cache, d.Storage, d.Matcher, d.Cfg)
 	interSvc := service.NewInteractionService(interRepo, contentRepo)
 	notifSvc := service.NewNotificationService(notifRepo)
 	msgSvc := service.NewMessageService(msgRepo, userRepo, d.Matcher)
-	adminSvc := service.NewAdminService(contentRepo, infoRepo, userRepo, govRepo)
+	adminSvc := service.NewAdminService(contentRepo, infoRepo, userRepo, govRepo, d.Cache)
 
 	// 校园服务（凭据代理）：统一认证绑定 + 只读数据代理（课表/成绩/绩点）。
 	campusH := campushandler.NewCampusHandler(d.Campus)
@@ -93,8 +93,8 @@ func New(d *Deps) *gin.Engine {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
-	optAuth := middleware.OptionalAuth(d.Tokens, d.DB)
-	reqAuth := middleware.Auth(d.Tokens, d.DB)
+	optAuth := middleware.OptionalAuth(d.Tokens, d.DB, d.Cache)
+	reqAuth := middleware.Auth(d.Tokens, d.DB, d.Cache)
 
 	api := r.Group("/api/v1")
 
@@ -121,6 +121,7 @@ func New(d *Deps) *gin.Engine {
 	api.GET("/categories", infoH.Categories)
 	api.GET("/boards/:id", infoH.BoardDetail)
 	api.GET("/boards/:id/tags", infoH.BoardTags)
+	api.GET("/boards/:id/hot-tags", infoH.BoardHotTags)
 	api.GET("/dict/search", infoH.DictSearch)
 
 	// 内容（公开读，可选鉴权注入互动状态）
@@ -129,6 +130,7 @@ func New(d *Deps) *gin.Engine {
 	api.GET("/boards/:id/posts", optAuth, contentH.BoardPosts)
 	api.GET("/posts/:id", optAuth, contentH.PostDetail)
 	api.GET("/posts/:id/replies", optAuth, contentH.ListReplies)
+	api.GET("/posts/:id/sub-replies", optAuth, contentH.FloorSubReplies)
 	api.GET("/search", optAuth, contentH.Search)
 	api.GET("/users/:id", userH.Profile)
 	api.GET("/users/:id/posts", optAuth, contentH.UserPosts)

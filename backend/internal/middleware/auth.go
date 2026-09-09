@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/whu-campus/luojia-bbs/internal/auth"
+	"github.com/whu-campus/luojia-bbs/internal/cache"
 	"github.com/whu-campus/luojia-bbs/internal/model"
 	"github.com/whu-campus/luojia-bbs/pkg/response"
 	"github.com/whu-campus/luojia-bbs/pkg/xerr"
@@ -24,8 +25,22 @@ func extractToken(c *gin.Context) string {
 	return parts[0]
 }
 
+// loadUser 优先读 Redis 用户缓存，未命中回源 DB 并回填。
+func loadUser(c *gin.Context, cc *cache.Client, db *gorm.DB, userID string) (*model.User, bool) {
+	ctx := c.Request.Context()
+	var user model.User
+	if hit, err := cc.GetJSON(ctx, cache.UserKey(userID), &user); err == nil && hit {
+		return &user, true
+	}
+	if err := db.First(&user, "id = ?", userID).Error; err != nil {
+		return nil, false
+	}
+	_ = cc.SetJSON(ctx, cache.UserKey(userID), &user, cache.UserTTL)
+	return &user, true
+}
+
 // Auth 鉴权中间件：解析 JWT、加载用户、校验封禁状态。
-func Auth(tm *auth.TokenManager, db *gorm.DB) gin.HandlerFunc {
+func Auth(tm *auth.TokenManager, db *gorm.DB, cc *cache.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := extractToken(c)
 		if token == "" {
@@ -40,8 +55,8 @@ func Auth(tm *auth.TokenManager, db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		var user model.User
-		if err := db.First(&user, "id = ?", claims.UserID).Error; err != nil {
+		user, ok := loadUser(c, cc, db, claims.UserID)
+		if !ok {
 			response.Fail(c, xerr.ErrUnauthorized)
 			c.Abort()
 			return
@@ -52,14 +67,14 @@ func Auth(tm *auth.TokenManager, db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		c.Set(CtxUserKey, &user)
+		c.Set(CtxUserKey, user)
 		c.Set(CtxClaimsKey, claims)
 		c.Next()
 	}
 }
 
 // OptionalAuth 可选鉴权：有合法 token 则装载用户，否则匿名放行。
-func OptionalAuth(tm *auth.TokenManager, db *gorm.DB) gin.HandlerFunc {
+func OptionalAuth(tm *auth.TokenManager, db *gorm.DB, cc *cache.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := extractToken(c)
 		if token == "" {
@@ -71,12 +86,12 @@ func OptionalAuth(tm *auth.TokenManager, db *gorm.DB) gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		var user model.User
-		if err := db.First(&user, "id = ?", claims.UserID).Error; err != nil {
+		user, ok := loadUser(c, cc, db, claims.UserID)
+		if !ok {
 			c.Next()
 			return
 		}
-		c.Set(CtxUserKey, &user)
+		c.Set(CtxUserKey, user)
 		c.Set(CtxClaimsKey, claims)
 		c.Next()
 	}

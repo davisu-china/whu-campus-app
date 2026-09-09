@@ -6,11 +6,13 @@ import (
 	"time"
 )
 
-// HotScore 计算综合排序分（PRD 第 6 章热度公式）：
+// HotScore 计算综合热度分（热门话题排序）：
 //
-//	hot_score = (reply×3 + like×2 + view×0.1) / (1 + age_hours)^1.5
-func HotScore(replyCount int, likeCount int, viewCount int64, createdAt time.Time) float64 {
-	interaction := float64(replyCount)*3 + float64(likeCount)*2 + float64(viewCount)*0.1
+//	hot_score = (reply×3 + like×2 + favorite×2) / (1 + age_hours)^1.5
+//
+// 兼顾互动量（评论/点赞/收藏）与时间衰减，越新的互动权重越高。
+func HotScore(replyCount, likeCount, favoriteCount int, createdAt time.Time) float64 {
+	interaction := float64(replyCount)*3 + float64(likeCount)*2 + float64(favoriteCount)*2
 	ageHours := time.Since(createdAt).Hours()
 	if ageHours < 0 {
 		ageHours = 0

@@ -43,6 +43,16 @@ func (h *InfoHandler) BoardTags(c *gin.Context) {
 	response.OK(c, tags)
 }
 
+func (h *InfoHandler) BoardHotTags(c *gin.Context) {
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "8"))
+	tags, err := h.svc.HotTags(c.Param("id"), limit)
+	if err != nil {
+		response.Fail(c, err)
+		return
+	}
+	response.OK(c, tags)
+}
+
 func (h *InfoHandler) DictSearch(c *gin.Context) {
 	dictType := c.Query("type")
 	q := c.Query("q")

@@ -3,6 +3,7 @@ package job
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/robfig/cron/v3"
 	"go.uber.org/zap"
@@ -31,6 +32,7 @@ func (r *Runner) Start() *cron.Cron {
 	c := cron.New()
 	_, _ = c.AddFunc("@every 5m", r.recomputeHotScores)
 	_, _ = c.AddFunc("@every 1m", r.runDueBookings)
+	_, _ = c.AddFunc("@every 1m", r.flushViewCounts)
 	c.Start()
 	r.log.Info("cron jobs started")
 	return c
@@ -45,7 +47,7 @@ func (r *Runner) recomputeHotScores() {
 		return
 	}
 	for _, p := range posts {
-		score := rank.HotScore(p.ReplyCount, p.LikeCount, p.ViewCount, p.CreatedAt)
+		score := rank.HotScore(p.ReplyCount, p.LikeCount, p.FavoriteCount, p.CreatedAt)
 		if err := r.content.UpdateHotScore(p.ID, score); err != nil {
 			r.log.Error("recompute hot score: update failed", zap.String("post_id", p.ID), zap.Error(err))
 			continue
@@ -62,5 +64,33 @@ func (r *Runner) runDueBookings() {
 	ctx := context.Background()
 	if err := r.plan.RunDueBookings(ctx); err != nil {
 		r.log.Error("run due bookings failed", zap.Error(err))
+	}
+}
+
+// flushViewCounts 将 Redis 中的浏览计数增量批量落库，并清空已落库字段。
+func (r *Runner) flushViewCounts() {
+	ctx := context.Background()
+	pending, err := r.cache.HGetAll(ctx, cache.ViewPendingKey())
+	if err != nil {
+		r.log.Error("flush view counts: hgetall failed", zap.Error(err))
+		return
+	}
+	flushed := 0
+	for postID, v := range pending {
+		delta, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || delta == 0 {
+			continue
+		}
+		if err := r.content.IncrementView(postID, delta); err != nil {
+			r.log.Error("flush view counts: update failed", zap.String("post_id", postID), zap.Error(err))
+			continue
+		}
+		if err := r.cache.HDel(ctx, cache.ViewPendingKey(), postID); err != nil {
+			r.log.Warn("flush view counts: hdel failed", zap.String("post_id", postID), zap.Error(err))
+		}
+		flushed++
+	}
+	if flushed > 0 {
+		r.log.Info("view counts flushed", zap.Int("count", flushed))
 	}
 }

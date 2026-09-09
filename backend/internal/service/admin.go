@@ -1,8 +1,10 @@
 package service
 
 import (
+	"context"
 	"time"
 
+	"github.com/whu-campus/luojia-bbs/internal/cache"
 	"github.com/whu-campus/luojia-bbs/internal/model"
 	"github.com/whu-campus/luojia-bbs/internal/repository"
 	"github.com/whu-campus/luojia-bbs/pkg/xerr"
@@ -14,6 +16,7 @@ type AdminService struct {
 	info    *repository.InfoRepo
 	users   *repository.UserRepo
 	gov     *repository.GovernanceRepo
+	cache   *cache.Client
 }
 
 func NewAdminService(
@@ -21,8 +24,9 @@ func NewAdminService(
 	info *repository.InfoRepo,
 	users *repository.UserRepo,
 	gov *repository.GovernanceRepo,
+	c *cache.Client,
 ) *AdminService {
-	return &AdminService{content: content, info: info, users: users, gov: gov}
+	return &AdminService{content: content, info: info, users: users, gov: gov, cache: c}
 }
 
 // ---- 内容审核 ----
@@ -168,6 +172,8 @@ func (s *AdminService) BanUser(operatorID, userID, banType, reason string, durat
 	if err := s.users.Update(user, map[string]interface{}{"status": status}); err != nil {
 		return xerr.New(xerr.CodeDBError, "更新用户状态失败").Wrap(err)
 	}
+	// 失效用户缓存，使封禁立即生效。
+	_ = s.cache.Del(context.Background(), cache.UserKey(userID))
 	s.log(operatorID, model.ActionBan, "user", userID, reason)
 	return nil
 }
@@ -207,6 +213,8 @@ func (s *AdminService) CreateBoard(categoryID, name, slug, description string, f
 	if err := s.info.CreateBoard(b); err != nil {
 		return nil, xerr.New(xerr.CodeDBError, "创建板块失败").Wrap(err)
 	}
+	// 失效分类树缓存。
+	_ = s.cache.Del(context.Background(), cache.CategoryTreeKey())
 	return b, nil
 }
 
@@ -215,6 +223,8 @@ func (s *AdminService) CreateTag(boardID, name string, isRequired bool) (*model.
 	if err := s.info.CreateTag(t); err != nil {
 		return nil, xerr.New(xerr.CodeDBError, "创建标签失败").Wrap(err)
 	}
+	// 失效该板块标签缓存。
+	_ = s.cache.Del(context.Background(), cache.BoardTagsKey(boardID))
 	return t, nil
 }
 
@@ -227,6 +237,8 @@ func (s *AdminService) CreateDict(dictType, name string) (*model.DictItem, error
 	if err := s.info.CreateDict(d); err != nil {
 		return nil, xerr.New(xerr.CodeDBError, "创建词典失败").Wrap(err)
 	}
+	// 失效词典搜索补全缓存。
+	_ = s.cache.DelByPattern(context.Background(), "info:dict:*")
 	return d, nil
 }
 
@@ -234,6 +246,8 @@ func (s *AdminService) DeleteDict(id string) error {
 	if err := s.info.DeleteDict(id); err != nil {
 		return xerr.New(xerr.CodeDBError, "删除词典失败").Wrap(err)
 	}
+	// 失效词典搜索补全缓存。
+	_ = s.cache.DelByPattern(context.Background(), "info:dict:*")
 	return nil
 }
 

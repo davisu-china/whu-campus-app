@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/google/uuid"
@@ -48,10 +49,54 @@ func NewContentService(
 
 // ---- 首页 ----
 
+// listCacheEntry 内容列表缓存条目（列表 + 总数，供分页响应）。
+type listCacheEntry struct {
+	List  []PostView `json:"list"`
+	Total int64      `json:"total"`
+}
+
+// getListCache 读取内容列表缓存；miss/出错返回 ok=false。
+func (s *ContentService) getListCache(key string) (list []PostView, total int64, ok bool) {
+	var e listCacheEntry
+	if hit, err := s.cache.GetJSON(context.Background(), key, &e); err == nil && hit {
+		return e.List, e.Total, true
+	}
+	return nil, 0, false
+}
+
+// setListCache 写入内容列表缓存（短 TTL，写操作后最多 15s 内可见）。
+func (s *ContentService) setListCache(key string, list []PostView, total int64) {
+	_ = s.cache.SetJSON(context.Background(), key, listCacheEntry{List: list, Total: total}, cache.ContentListTTL)
+}
+
 func (s *ContentService) HomeFeed(page, pageSize int) ([]PostView, int64, error) {
-	posts, total, err := s.content.ListFeatured(page, pageSize)
+	// 首页信息流：全部已发布帖子，按发帖时间倒序（置顶优先）。
+	// 仅缓存第一页（访问最密集的入口），短 TTL。
+	if page == 1 {
+		key := cache.HomeFeedKey(page, pageSize)
+		if list, total, ok := s.getListCache(key); ok {
+			return list, total, nil
+		}
+		posts, total, err := s.content.ListPosts(repository.PostListQuery{
+			Sort:     "latest",
+			Page:     page,
+			PageSize: pageSize,
+		})
+		if err != nil {
+			return nil, 0, xerr.New(xerr.CodeDBError, "查询信息流失败").Wrap(err)
+		}
+		views := mapPostsToViews(posts)
+		s.setListCache(key, views, total)
+		return views, total, nil
+	}
+
+	posts, total, err := s.content.ListPosts(repository.PostListQuery{
+		Sort:     "latest",
+		Page:     page,
+		PageSize: pageSize,
+	})
 	if err != nil {
-		return nil, 0, xerr.New(xerr.CodeDBError, "查询精选失败").Wrap(err)
+		return nil, 0, xerr.New(xerr.CodeDBError, "查询信息流失败").Wrap(err)
 	}
 	return mapPostsToViews(posts), total, nil
 }
@@ -60,16 +105,31 @@ func (s *ContentService) HomeHot(limit int) ([]PostView, error) {
 	if limit <= 0 || limit > 50 {
 		limit = 10
 	}
+	key := cache.HomeHotKey(limit)
+	if list, _, ok := s.getListCache(key); ok {
+		return list, nil
+	}
 	posts, err := s.content.ListHot(limit)
 	if err != nil {
 		return nil, xerr.New(xerr.CodeDBError, "查询热门失败").Wrap(err)
 	}
-	return mapPostsToViews(posts), nil
+	views := mapPostsToViews(posts)
+	s.setListCache(key, views, int64(len(views)))
+	return views, nil
 }
 
 // ---- 板块帖子列表 ----
 
 func (s *ContentService) BoardPosts(boardID, sort, tagID string, page, pageSize int) ([]PostView, int64, error) {
+	// 仅缓存第一页、无标签筛选的列表（板块列表入口，短 TTL）。
+	cacheable := page == 1 && tagID == ""
+	if cacheable {
+		key := cache.BoardPostsKey(boardID, sort, tagID, page, pageSize)
+		if list, total, ok := s.getListCache(key); ok {
+			return list, total, nil
+		}
+	}
+
 	board, err := s.info.GetBoard(boardID)
 	if err != nil {
 		return nil, 0, xerr.New(xerr.CodeBoardNotFound, "板块不存在")
@@ -93,6 +153,9 @@ func (s *ContentService) BoardPosts(boardID, sort, tagID string, page, pageSize 
 	for i := range views {
 		views[i].BoardName = board.Name
 	}
+	if cacheable {
+		s.setListCache(cache.BoardPostsKey(boardID, sort, tagID, page, pageSize), views, total)
+	}
 	return views, total, nil
 }
 
@@ -111,8 +174,8 @@ func (s *ContentService) PostDetail(id, currentUserID string) (*PostView, error)
 		return nil, xerr.New(xerr.CodePostNotVisible, "帖子不可见")
 	}
 
-	// 浏览计数（MVP 直接落库，后续可迁 Redis 异步）
-	_ = s.content.IncrementView(post.ID, 1)
+	// 浏览计数：写入 Redis 计数器，由定时任务批量落库，避免每次浏览写 DB。
+	_, _ = s.cache.HIncrBy(context.Background(), cache.ViewPendingKey(), post.ID, 1)
 	post.ViewCount++
 
 	view := s.buildPostViewDetail(post, currentUserID)
@@ -134,7 +197,8 @@ type CreatePostInput struct {
 	Title       string       `json:"title"`
 	Content     string       `json:"content"`
 	IsAnonymous bool         `json:"is_anonymous"`
-	TagIDs      []string     `json:"tag_ids"`
+	TagIDs      []string     `json:"tag_ids"`   // 预置标签（按 ID）
+	TagNames    []string     `json:"tag_names"` // 用户即时创建标签（按名称）
 	Fields      []FieldInput `json:"fields"`
 	ObjectKeys  []string     `json:"object_keys"`
 }
@@ -145,6 +209,7 @@ type UpdatePostInput struct {
 	Content     string       `json:"content"`
 	IsAnonymous bool         `json:"is_anonymous"`
 	TagIDs      []string     `json:"tag_ids"`
+	TagNames    []string     `json:"tag_names"`
 	Fields      []FieldInput `json:"fields"`
 	ObjectKeys  []string     `json:"object_keys"`
 }
@@ -188,8 +253,8 @@ func (s *ContentService) CreatePost(author *model.User, in CreatePostInput) (*Po
 		}
 	}
 
-	// 标签/结构化字段校验
-	fields, err := s.validateFields(board, in)
+	// 标签/结构化字段校验（标签制板块会在此即时创建用户标签）
+	fields, tagIDs, err := s.validateFields(board, in, author.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +270,7 @@ func (s *ContentService) CreatePost(author *model.User, in CreatePostInput) (*Po
 
 	atts := buildAttachments(in.ObjectKeys)
 
-	if err := s.content.CreatePostWithDetails(post, in.TagIDs, fields, atts); err != nil {
+	if err := s.content.CreatePostWithDetails(post, tagIDs, fields, atts); err != nil {
 		return nil, xerr.New(xerr.CodeDBError, "发帖失败").Wrap(err)
 	}
 
@@ -218,35 +283,14 @@ func (s *ContentService) CreatePost(author *model.User, in CreatePostInput) (*Po
 	return &view, nil
 }
 
-// validateFields 依板块 field_mode 校验标签或结构化字段。
-func (s *ContentService) validateFields(board *model.Board, in CreatePostInput) ([]model.PostField, error) {
+// validateFields 依板块 field_mode 解析标签/结构化字段，返回结构化字段与最终标签 ID 列表。
+func (s *ContentService) validateFields(board *model.Board, in CreatePostInput, userID string) ([]model.PostField, []string, error) {
 	if board.FieldMode == model.FieldModeTags {
-		tags, err := s.info.ListTags(board.ID)
+		tagIDs, err := s.resolveAndValidateTags(board, in.TagIDs, in.TagNames, userID)
 		if err != nil {
-			return nil, xerr.New(xerr.CodeDBError, "查询标签失败").Wrap(err)
+			return nil, nil, err
 		}
-		valid := map[string]*model.Tag{}
-		var required []*model.Tag
-		for i := range tags {
-			valid[tags[i].ID] = &tags[i]
-			if tags[i].IsRequired {
-				required = append(required, &tags[i])
-			}
-		}
-		requiredCount := 0
-		for _, tid := range in.TagIDs {
-			t, ok := valid[tid]
-			if !ok {
-				return nil, xerr.New(xerr.CodeTagInvalid, "标签不属于该板块")
-			}
-			if t.IsRequired {
-				requiredCount++
-			}
-		}
-		if len(required) > 0 && requiredCount != 1 {
-			return nil, xerr.New(xerr.CodeTagRequired, "请选择一个必选标签")
-		}
-		return nil, nil
+		return nil, tagIDs, nil
 	}
 
 	// 结构化字段板块
@@ -263,26 +307,128 @@ func (s *ContentService) validateFields(board *model.Board, in CreatePostInput) 
 			RawValue:   f.RawValue,
 		})
 	}
-	// 必填字段校验
-	has := func(k string) bool {
-		for _, f := range fields {
-			if f.FieldKey == k && (f.DictItemID != "" || f.RawValue != "") {
-				return true
+	// 结构化字段板块（课程评价/竞赛组队）：不再强制要求填写课程名/老师/竞赛名（放开限制，字段可选）。
+	return fields, nil, nil
+}
+
+const (
+	maxTagsPerPost = 5
+	maxTagNameLen  = 16
+)
+
+// resolveAndValidateTags 合并预置标签（tagIDs）与用户即时创建标签（tagNames），
+// 校验标签归属与必选约束，返回去重后的标签 ID 列表。
+func (s *ContentService) resolveAndValidateTags(board *model.Board, tagIDs, tagNames []string, userID string) ([]string, error) {
+	userTagIDs, err := s.resolveTags(board.ID, tagNames, userID)
+	if err != nil {
+		return nil, err
+	}
+	combined := append(append([]string{}, tagIDs...), userTagIDs...)
+	combined = dedupStrings(combined)
+	if len(combined) > maxTagsPerPost {
+		return nil, xerr.New(xerr.CodeTagTooMany, "标签最多 5 个")
+	}
+
+	tags, err := s.info.ListTags(board.ID)
+	if err != nil {
+		return nil, xerr.New(xerr.CodeDBError, "查询标签失败").Wrap(err)
+	}
+	valid := map[string]bool{}
+	required := map[string]bool{}
+	for i := range tags {
+		valid[tags[i].ID] = true
+		if tags[i].IsRequired {
+			required[tags[i].ID] = true
+		}
+	}
+	requiredCount := 0
+	for _, tid := range combined {
+		if !valid[tid] {
+			return nil, xerr.New(xerr.CodeTagInvalid, "标签不属于该板块")
+		}
+		if required[tid] {
+			requiredCount++
+		}
+	}
+	if len(required) > 0 && requiredCount != 1 {
+		return nil, xerr.New(xerr.CodeTagRequired, "请选择一个必选标签")
+	}
+	return combined, nil
+}
+
+// resolveTags 将用户提交的标签名解析为标签 ID：已存在则复用，否则即时创建（用户标签）。
+func (s *ContentService) resolveTags(boardID string, tagNames []string, userID string) ([]string, error) {
+	if len(tagNames) == 0 {
+		return nil, nil
+	}
+	seen := map[string]bool{}
+	ids := make([]string, 0, len(tagNames))
+	for _, raw := range tagNames {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			continue
+		}
+		if len([]rune(name)) > maxTagNameLen {
+			return nil, xerr.New(xerr.CodeBadParam, "标签名最长 16 字")
+		}
+		// 标签名同样走敏感词过滤（高危拒绝）
+		if s.matcher != nil {
+			if res := s.matcher.Match(name); res.Level == filter.MatchHigh {
+				return nil, xerr.New(xerr.CodeSensitiveWord, "标签包含违规信息")
 			}
 		}
-		return false
-	}
-	switch board.Slug {
-	case model.SlugCourseReview:
-		if !has("course") || !has("teacher") {
-			return nil, xerr.New(xerr.CodeBadParam, "课程评价需填写课程名与老师")
+		key := strings.ToLower(name)
+		if seen[key] {
+			continue
 		}
-	case model.SlugContestTeam:
-		if !has("contest") {
-			return nil, xerr.New(xerr.CodeBadParam, "竞赛组队需填写竞赛名")
+		seen[key] = true
+
+		tag, err := s.info.FindTagByName(boardID, name)
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, xerr.New(xerr.CodeDBError, "查询标签失败").Wrap(err)
 		}
+		if tag == nil {
+			tag = &model.Tag{
+				BoardID:       boardID,
+				Name:          name,
+				IsUserCreated: true,
+				CreatedBy:     &userID,
+				Sort:          100, // 用户标签排在预置之后
+				Status:        model.StatusEnabled,
+			}
+			if err := s.info.CreateTag(tag); err != nil {
+				// 并发创建同名标签：唯一索引冲突则回退查询已存在标签
+				existing, ferr := s.info.FindTagByName(boardID, name)
+				if ferr == nil {
+					tag = existing
+				} else {
+					return nil, xerr.New(xerr.CodeDBError, "创建标签失败").Wrap(err)
+				}
+			}
+			// 即时创建后失效板块标签缓存，使新标签尽快可见
+			_ = s.cache.Del(context.Background(), cache.BoardTagsKey(boardID))
+			_ = s.cache.DelByPattern(context.Background(), "info:hot_tags:"+boardID+":*")
+		}
+		ids = append(ids, tag.ID)
 	}
-	return fields, nil
+	return ids, nil
+}
+
+// dedupStrings 去除重复字符串并保持顺序。
+func dedupStrings(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
 }
 
 // ---- 编辑/删除 ----
@@ -323,34 +469,14 @@ func (s *ContentService) UpdatePost(author *model.User, id string, in UpdatePost
 		}
 	}
 
-	// 标签（仅 tag 型板块）：校验后整体替换
+	// 标签（仅 tag 型板块）：合并预置与即时创建标签后整体替换
 	var tagIDs []string
-	if in.TagIDs != nil && post.Board != nil && post.Board.FieldMode == model.FieldModeTags {
-		tags, err := s.info.ListTags(post.Board.ID)
+	if (in.TagIDs != nil || in.TagNames != nil) && post.Board != nil && post.Board.FieldMode == model.FieldModeTags {
+		ids, err := s.resolveAndValidateTags(post.Board, in.TagIDs, in.TagNames, author.ID)
 		if err != nil {
-			return nil, xerr.New(xerr.CodeDBError, "查询标签失败").Wrap(err)
+			return nil, err
 		}
-		valid := map[string]bool{}
-		required := map[string]bool{}
-		for i := range tags {
-			valid[tags[i].ID] = true
-			if tags[i].IsRequired {
-				required[tags[i].ID] = true
-			}
-		}
-		requiredCount := 0
-		for _, tid := range in.TagIDs {
-			if !valid[tid] {
-				return nil, xerr.New(xerr.CodeTagInvalid, "标签不属于该板块")
-			}
-			if required[tid] {
-				requiredCount++
-			}
-		}
-		if len(required) > 0 && requiredCount != 1 {
-			return nil, xerr.New(xerr.CodeTagRequired, "请选择一个必选标签")
-		}
-		tagIDs = in.TagIDs
+		tagIDs = ids
 	}
 
 	// 附件（图片）：整体替换
@@ -395,12 +521,46 @@ type CreateReplyInput struct {
 	ReplyToID   string `json:"reply_to_id"` // 被 @ 回复 ID（可选，缺省=parent_id）
 }
 
-func (s *ContentService) ListReplies(postID, currentUserID string) ([]ReplyView, error) {
-	replies, err := s.content.ListReplies(postID)
+func (s *ContentService) ListReplies(postID, currentUserID string, page, pageSize int) ([]ReplyView, int64, error) {
+	total, err := s.content.CountFloors(postID)
 	if err != nil {
-		return nil, xerr.New(xerr.CodeDBError, "查询回复失败").Wrap(err)
+		return nil, 0, xerr.New(xerr.CodeDBError, "查询回复数失败").Wrap(err)
 	}
-	return s.assembleReplies(replies, currentUserID), nil
+	floors, err := s.content.ListFloors(postID, page, pageSize)
+	if err != nil {
+		return nil, 0, xerr.New(xerr.CodeDBError, "查询回复失败").Wrap(err)
+	}
+	if len(floors) == 0 {
+		return []ReplyView{}, total, nil
+	}
+	floorNos := make([]int, 0, len(floors))
+	for i := range floors {
+		floorNos = append(floorNos, floors[i].FloorNo)
+	}
+	// 楼中楼懒加载：列表只返回顶层楼层 + 各楼层楼中楼数量，楼中楼在展开时按需拉取。
+	subCounts, err := s.content.CountSubReplies(postID, floorNos)
+	if err != nil {
+		return nil, 0, xerr.New(xerr.CodeDBError, "查询楼中楼数量失败").Wrap(err)
+	}
+	views := make([]ReplyView, 0, len(floors))
+	for i := range floors {
+		v := s.buildReplyView(&floors[i], currentUserID)
+		v.SubCount = int(subCounts[floors[i].FloorNo])
+		views = append(views, v)
+	}
+	return views, total, nil
+}
+
+// FloorSubReplies 懒加载某楼层（floor_no）下的全部楼中楼（第二层 + 第三层树）。
+func (s *ContentService) FloorSubReplies(postID string, floorNo int, currentUserID string) ([]ReplyView, error) {
+	subs, err := s.content.ListSubReplies(postID, []int{floorNo})
+	if err != nil {
+		return nil, xerr.New(xerr.CodeDBError, "查询楼中楼失败").Wrap(err)
+	}
+	if len(subs) == 0 {
+		return []ReplyView{}, nil
+	}
+	return s.assembleSubReplies(subs, currentUserID), nil
 }
 
 func (s *ContentService) CreateReply(author *model.User, postID string, in CreateReplyInput) (*ReplyView, error) {
@@ -435,6 +595,12 @@ func (s *ContentService) CreateReply(author *model.User, postID string, in Creat
 		parent, err := s.content.GetReply(in.ParentID)
 		if err != nil {
 			return nil, xerr.New(xerr.CodeReplyNotFound, "回复对象不存在")
+		}
+		// 三层封顶：第三层（楼中楼的回复）不再开放回复入口，拒绝更深层。
+		if parent.ParentID != nil {
+			if gp, err := s.content.GetReply(*parent.ParentID); err == nil && gp.ParentID != nil {
+				return nil, xerr.New(xerr.CodeBadParam, "最多支持三层回复")
+			}
 		}
 		reply.ParentID = &parent.ID
 		reply.FloorNo = parent.FloorNo
@@ -678,31 +844,56 @@ func (s *ContentService) buildReplyView(r *model.Reply, currentUserID string) Re
 	return v
 }
 
-// assembleReplies 组装楼层树。
-func (s *ContentService) assembleReplies(replies []model.Reply, currentUserID string) []ReplyView {
-	byID := map[string]*ReplyView{}
-	var roots []*ReplyView
+// assembleSubReplies 组装某楼层下的楼中楼树（第二层 + 第三层）。
+//
+// 传入的是该楼层下的全部楼中楼（parent_id 均非空）。其中 parent_id 指向楼层本身
+// （不在本集合内）的为第二层根，parent_id 指向其他楼中楼的为第三层。
+// 用 childIDs 记录「展示父节点 → 子节点」的指针关系，最后自顶向下递归物化，
+// 避免先把子节点值拷贝进父节点、再给子节点追加孙节点导致的孙节点丢失问题。
+func (s *ContentService) assembleSubReplies(replies []model.Reply, currentUserID string) []ReplyView {
+	byID := make(map[string]*ReplyView, len(replies))
+	childIDs := make(map[string][]string, len(replies))
 
+	var rootIDs []string
 	for i := range replies {
 		rv := s.buildReplyView(&replies[i], currentUserID)
 		byID[rv.ID] = &rv
-		if rv.ParentID == "" {
-			roots = append(roots, &rv)
-		}
 	}
 
-	for _, rv := range byID {
-		if rv.ParentID == "" {
+	for id, rv := range byID {
+		parent, ok := byID[rv.ParentID]
+		if !ok {
+			// 父节点（楼层）不在楼中楼集合内，视为第二层根。
+			rootIDs = append(rootIDs, id)
 			continue
 		}
-		if parent, ok := byID[rv.ParentID]; ok {
-			parent.Children = append(parent.Children, *rv)
-		}
+		childIDs[parent.ID] = append(childIDs[parent.ID], id)
 	}
 
-	result := make([]ReplyView, 0, len(roots))
-	for _, r := range roots {
-		result = append(result, *r)
+	// 自顶向下递归物化，楼中楼按时间正序。
+	var build func(id string) ReplyView
+	build = func(id string) ReplyView {
+		node := *byID[id]
+		ids := childIDs[id]
+		if len(ids) > 0 {
+			sort.SliceStable(ids, func(i, j int) bool {
+				return byID[ids[i]].CreatedAt.Before(byID[ids[j]].CreatedAt)
+			})
+			node.Children = make([]ReplyView, 0, len(ids))
+			for _, cid := range ids {
+				node.Children = append(node.Children, build(cid))
+			}
+		}
+		return node
+	}
+
+	sort.SliceStable(rootIDs, func(i, j int) bool {
+		return byID[rootIDs[i]].CreatedAt.Before(byID[rootIDs[j]].CreatedAt)
+	})
+
+	result := make([]ReplyView, 0, len(rootIDs))
+	for _, id := range rootIDs {
+		result = append(result, build(id))
 	}
 	return result
 }

@@ -24,7 +24,9 @@ export default function AppLayout() {
           </div>
         )}
         <main className="flex-1 min-w-0">
-          <Outlet />
+          <div className={showSidebars ? undefined : 'max-w-3xl mx-auto'}>
+            <Outlet />
+          </div>
         </main>
         {showSidebars && (
           <div className="hidden xl:block w-[300px] shrink-0">

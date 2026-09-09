@@ -30,7 +30,7 @@ export default function Home() {
       </div>
 
       <div className="flex items-baseline justify-between mb-4">
-        <h1 className="text-lg font-bold text-ink">为你推荐</h1>
+        <h1 className="text-lg font-bold text-ink">最新帖子</h1>
         <Link to="/search" className="text-[13px] text-ink-3 hover:text-brand transition-colors">
           去搜索 →
         </Link>

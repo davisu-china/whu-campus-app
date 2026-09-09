@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
   createReply,
   deletePost,
   getPost,
   getReplies,
+  getSubReplies,
   report,
   toggleFavorite,
   toggleLikePost,
@@ -12,10 +13,12 @@ import {
 } from '../api/content'
 import type { Post, Reply } from '../api/types'
 import { useAuth } from '../hooks/useAuth'
+import { usePaginatedList } from '../hooks/usePaginatedList'
 import { Avatar } from '../components/ui/Avatar'
 import { Button } from '../components/ui/Button'
 import { Tag } from '../components/ui/Tag'
 import { Spinner } from '../components/ui/Spinner'
+import { LoadMore } from '../components/LoadMore'
 import { formatCount, formatTime } from '../utils/format'
 import { cn } from '../utils/cn'
 
@@ -25,28 +28,37 @@ export default function PostDetail() {
   const { isLoggedIn, user, ensureLogin } = useAuth()
 
   const [post, setPost] = useState<Post | null>(null)
-  const [replies, setReplies] = useState<Reply[]>([])
   const [loading, setLoading] = useState(true)
   const [replyText, setReplyText] = useState('')
   const [replyTo, setReplyTo] = useState<Reply | null>(null)
   const [anonymous, setAnonymous] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [expandedFloors, setExpandedFloors] = useState<Set<string>>(new Set())
+  const [subLoading, setSubLoading] = useState<Set<string>>(new Set())
 
-  const loadReplies = useCallback(() => {
-    getReplies(id)
-      .then(setReplies)
-      .catch(() => setReplies([]))
-  }, [id])
+  const {
+    list: replies,
+    loading: loadingReplies,
+    refreshing: refreshingReplies,
+    hasMore,
+    refresh: refreshReplies,
+    loadMore,
+    setList: setReplies
+  } = usePaginatedList((page) =>
+    getReplies(id, page).then((r) => ({ list: r.list, hasMore: r.has_more }))
+  )
 
   useEffect(() => {
     setLoading(true)
+    setExpandedFloors(new Set())
+    setSubLoading(new Set())
     getPost(id)
       .then(setPost)
       .catch(() => setPost(null))
       .finally(() => setLoading(false))
-    loadReplies()
-  }, [id, loadReplies])
+    refreshReplies()
+  }, [id, refreshReplies])
 
   async function likePost() {
     if (!ensureLogin()) return
@@ -94,10 +106,45 @@ export default function PostDetail() {
       setReplyText('')
       setReplyTo(null)
       setAnonymous(false)
-      loadReplies()
-      setPost((p) => (p ? { ...p, reply_count: p.reply_count + 1 } : p))
+      setExpandedFloors(new Set())
+      setSubLoading(new Set())
+      refreshReplies()
+      if (!replyTo) {
+        setPost((p) => (p ? { ...p, reply_count: p.reply_count + 1 } : p))
+      }
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  // 展开/收起某楼层的楼中楼：首次展开时懒加载，之后驻留本地直接切换。
+  async function toggleFloor(floor: Reply) {
+    const fid = floor.id
+    if (expandedFloors.has(fid)) {
+      setExpandedFloors((prev) => {
+        const next = new Set(prev)
+        next.delete(fid)
+        return next
+      })
+      return
+    }
+    if (floor.children && floor.children.length > 0) {
+      setExpandedFloors((prev) => new Set(prev).add(fid))
+      return
+    }
+    setSubLoading((prev) => new Set(prev).add(fid))
+    try {
+      const subs = await getSubReplies(id, floor.floor_no)
+      setReplies((prev) => prev.map((f) => (f.id === fid ? { ...f, children: subs } : f)))
+      setExpandedFloors((prev) => new Set(prev).add(fid))
+    } catch {
+      // request 层已 toast，保持收起
+    } finally {
+      setSubLoading((prev) => {
+        const next = new Set(prev)
+        next.delete(fid)
+        return next
+      })
     }
   }
 
@@ -247,23 +294,30 @@ export default function PostDetail() {
       <div className="mt-4 bg-surface rounded-xl border border-line/60 p-6">
         <h2 className="text-base font-semibold text-ink mb-2">全部回复（{post.reply_count}）</h2>
 
-        {replies.length === 0 ? (
+        {replies.length === 0 && !loadingReplies && !refreshingReplies ? (
           <p className="text-center text-ink-3 text-sm py-10">还没有回复，来抢沙发～</p>
         ) : (
-          <div className="divide-y divide-line/50">
-            {replies.map((r) => (
-              <ReplyItem
-                key={r.id}
-                r={r}
-                top
-                onReply={(target) => setReplyTo(target)}
-                onLike={(rid) => {
-                  if (!ensureLogin()) return
-                  toggleLikeReply(rid).then(() => loadReplies())
-                }}
-              />
-            ))}
-          </div>
+          <>
+            <div className="divide-y divide-line/50">
+              {replies.map((r) => (
+                <ReplyItem
+                  key={r.id}
+                  r={r}
+                  top
+                  subCount={r.sub_count ?? 0}
+                  expanded={expandedFloors.has(r.id)}
+                  subLoading={subLoading.has(r.id)}
+                  onToggle={toggleFloor}
+                  onReply={(target) => setReplyTo(target)}
+                  onLike={(rid) => {
+                    if (!ensureLogin()) return
+                    toggleLikeReply(rid).then((res) => setReplies((prev) => mapReplyLike(prev, rid, res.liked)))
+                  }}
+                />
+              ))}
+            </div>
+            <LoadMore loading={loadingReplies} hasMore={hasMore} onLoadMore={loadMore} />
+          </>
         )}
 
         {/* 回复输入 */}
@@ -308,15 +362,30 @@ export default function PostDetail() {
 function ReplyItem({
   r,
   top,
+  depth = 0,
+  subCount = 0,
+  expanded = false,
+  subLoading = false,
+  onToggle,
   onReply,
   onLike
 }: {
   r: Reply
   top?: boolean
+  depth?: number
+  subCount?: number
+  expanded?: boolean
+  subLoading?: boolean
+  onToggle?: (r: Reply) => void
   onReply: (r: Reply) => void
   onLike: (rid: string) => void
 }) {
   const name = r.is_anonymous ? '匿名用户' : r.author?.nickname || '匿名用户'
+  // 三层封顶：第三层（楼中楼的回复）不再开放回复入口
+  const canReply = depth < 2
+  const isFloor = depth === 0
+  // 楼层下的楼中楼懒加载：默认收起，展开时按需拉取（children 已加载后驻留内存）
+  const showChildren = !!r.children?.length && (!isFloor || expanded)
   return (
     <div className={cn('py-4', top && 'first:pt-0')}>
       <div className="flex gap-3">
@@ -347,21 +416,41 @@ function ReplyItem({
             >
               赞 {r.like_count}
             </button>
-            <button onClick={() => onReply(r)} className="hover:text-ink transition-colors">
-              回复
-            </button>
+            {canReply && (
+              <button onClick={() => onReply(r)} className="hover:text-ink transition-colors">
+                回复
+              </button>
+            )}
           </div>
         </div>
       </div>
 
-      {/* 楼中楼 */}
-      {r.children && r.children.length > 0 && (
+      {/* 楼层下的楼中楼：懒加载，展开时按需拉取 */}
+      {isFloor && subCount > 0 && (
+        <button
+          onClick={() => onToggle?.(r)}
+          className="mt-2 ml-11 text-[12px] text-brand hover:text-brand/80 transition-colors"
+        >
+          {subLoading ? '加载中…' : expanded ? '收起' : `展开 ${subCount} 条回复`}
+        </button>
+      )}
+      {showChildren && r.children && (
         <div className="ml-11 mt-3 pl-4 border-l-2 border-line/60 space-y-3">
           {r.children.map((c) => (
-            <ReplyItem key={c.id} r={c} onReply={onReply} onLike={onLike} />
+            <ReplyItem key={c.id} r={c} depth={depth + 1} onReply={onReply} onLike={onLike} />
           ))}
         </div>
       )}
     </div>
   )
+}
+
+// 递归更新某条回复的点赞状态（点赞后本地就地更新，避免整页刷新跳回第一页）。
+function mapReplyLike(list: Reply[], rid: string, liked: boolean): Reply[] {
+  return list.map((r) => ({
+    ...r,
+    liked: r.id === rid ? liked : r.liked,
+    like_count: r.id === rid ? Math.max(0, r.like_count + (liked ? 1 : -1)) : r.like_count,
+    children: r.children ? mapReplyLike(r.children, rid, liked) : r.children
+  }))
 }

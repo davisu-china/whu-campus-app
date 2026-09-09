@@ -3,6 +3,7 @@ package cache
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -99,4 +100,59 @@ func (c *Client) ZAdd(ctx context.Context, key string, score float64, member str
 // ZRevRange 返回有序集合按分数降序的成员（含分数）。
 func (c *Client) ZRevRangeWithScores(ctx context.Context, key string, start, stop int64) ([]redis.Z, error) {
 	return c.rdb.ZRevRangeWithScores(ctx, key, start, stop).Result()
+}
+
+// GetJSON 读取并反序列化 JSON 到 dest；miss 返回 (false, nil)。
+func (c *Client) GetJSON(ctx context.Context, key string, dest any) (bool, error) {
+	v, err := c.Get(ctx, key)
+	if err != nil {
+		return false, err
+	}
+	if v == "" {
+		return false, nil
+	}
+	if err := json.Unmarshal([]byte(v), dest); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// SetJSON 序列化 val 并写入，带过期时间。
+func (c *Client) SetJSON(ctx context.Context, key string, val any, ttl time.Duration) error {
+	b, err := json.Marshal(val)
+	if err != nil {
+		return err
+	}
+	return c.Set(ctx, key, string(b), ttl)
+}
+
+// HIncrBy 哈希字段自增，返回自增后的值。
+func (c *Client) HIncrBy(ctx context.Context, key, field string, delta int64) (int64, error) {
+	return c.rdb.HIncrBy(ctx, key, field, delta).Result()
+}
+
+// HGetAll 返回整个哈希。
+func (c *Client) HGetAll(ctx context.Context, key string) (map[string]string, error) {
+	return c.rdb.HGetAll(ctx, key).Result()
+}
+
+// HDel 删除哈希字段。
+func (c *Client) HDel(ctx context.Context, key string, fields ...string) error {
+	if len(fields) == 0 {
+		return nil
+	}
+	return c.rdb.HDel(ctx, key, fields...).Err()
+}
+
+// DelByPattern 按模式删除所有匹配的 key（SCAN 分批，避免 KEYS 阻塞）。
+func (c *Client) DelByPattern(ctx context.Context, pattern string) error {
+	iter := c.rdb.Scan(ctx, 0, pattern, 100).Iterator()
+	keys := make([]string, 0)
+	for iter.Next(ctx) {
+		keys = append(keys, iter.Val())
+	}
+	if err := iter.Err(); err != nil {
+		return err
+	}
+	return c.Del(ctx, keys...)
 }

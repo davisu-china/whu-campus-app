@@ -55,6 +55,7 @@ type ReplyView struct {
 	LikeCount   int               `json:"like_count"`
 	CreatedAt   time.Time         `json:"created_at"`
 	Liked       bool              `json:"liked"`
+	SubCount    int               `json:"sub_count,omitempty"` // 楼中楼总数（仅顶层楼层有意义）
 	Children    []ReplyView       `json:"children,omitempty"`
 }
 

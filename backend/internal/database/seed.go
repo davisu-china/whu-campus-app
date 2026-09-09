@@ -50,14 +50,18 @@ var seedCategories = []seedCategory{
 	{
 		name: "学习成长",
 		boards: []seedBoard{
-			{model.SlugCourseReview, "课程评价", "课程与教师评价", model.FieldModeStructured, nil},
+			{model.SlugCourseReview, "课程评价", "课程与教师评价", model.FieldModeTags, []seedTag{
+				{"通识课", false}, {"专业课", false}, {"体育课", false}, {"实验课", false}, {"其他", false},
+			}},
 			{model.SlugPostgraduate, "考研专区", "考研信息、经验、资料", model.FieldModeTags, []seedTag{
 				{"数学", false}, {"英语", false}, {"政治", false}, {"专业课", false}, {"经验", false}, {"资料", false}, {"报录比", false}, {"其他", false},
 			}},
 			{model.SlugStudyAbroad, "保研出国", "保研、留学申请", model.FieldModeTags, []seedTag{
 				{"保研", false}, {"留学", false}, {"夏令营", false}, {"经验", false}, {"其他", false},
 			}},
-			{model.SlugContestTeam, "竞赛组队", "学科竞赛组队", model.FieldModeStructured, nil},
+			{model.SlugContestTeam, "竞赛组队", "学科竞赛组队", model.FieldModeTags, []seedTag{
+				{"数学建模", false}, {"挑战杯", false}, {"互联网+", false}, {"ACM", false}, {"电子设计", false}, {"其他", false},
+			}},
 			{model.SlugAcademic, "学术讨论", "科研、论文、学术交流", model.FieldModeTags, []seedTag{
 				{"科研", false}, {"论文", false}, {"实验", false}, {"求助", false}, {"其他", false},
 			}},
@@ -313,4 +317,62 @@ func SeedColleges(db *gorm.DB) error {
 		}
 	}
 	return nil
+}
+
+// boardStarterTags 课程评价/竞赛组队从「结构化字段」切换为「标签制」后的起始标签。
+// 与 seedCategories 中这两个板块的 tags 保持一致；用于已初始化库的增量迁移。
+var boardStarterTags = []struct {
+	slug string
+	tags []seedTag
+}{
+	{model.SlugCourseReview, []seedTag{
+		{"通识课", false}, {"专业课", false}, {"体育课", false}, {"实验课", false}, {"其他", false},
+	}},
+	{model.SlugContestTeam, []seedTag{
+		{"数学建模", false}, {"挑战杯", false}, {"互联网+", false}, {"ACM", false}, {"电子设计", false}, {"其他", false},
+	}},
+}
+
+// SeedBoardStarterTags 幂等：将课程评价/竞赛组队切换为标签模式并补齐起始标签。
+// 始终执行（与 Seed 的 boardCount 闸门解耦），确保已运行的库也能完成这次模式迁移。
+func SeedBoardStarterTags(db *gorm.DB) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		for _, bs := range boardStarterTags {
+			var board model.Board
+			if err := tx.Where("slug = ?", bs.slug).First(&board).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					continue // 板块不存在（理论上不会）
+				}
+				return err
+			}
+			// 切换为标签模式
+			if board.FieldMode != model.FieldModeTags {
+				if err := tx.Model(&model.Board{}).Where("id = ?", board.ID).
+					Update("field_mode", model.FieldModeTags).Error; err != nil {
+					return err
+				}
+			}
+			// 补齐起始标签
+			for i, t := range bs.tags {
+				var tag model.Tag
+				err := tx.Where("board_id = ? AND name = ?", board.ID, t.name).First(&tag).Error
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					nt := model.Tag{
+						BoardID: board.ID,
+						Name:    t.name,
+						Sort:    i,
+						Status:  model.StatusEnabled,
+					}
+					if cerr := tx.Create(&nt).Error; cerr != nil {
+						return cerr
+					}
+					continue
+				}
+				if err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
 }

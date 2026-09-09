@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { useCategoryStore } from '../../store/category'
 import { ANNOUNCEMENT_SLUG } from '../../constants/enums'
 import { cn } from '../../utils/cn'
+import { BoardIcon, CategoryIcon, HomeIcon } from './boardIcons'
 
 export function BoardSidebar() {
   const { id: boardId } = useParams()
@@ -42,7 +43,8 @@ export function BoardSidebar() {
           !boardId ? 'bg-brand-soft text-brand' : 'text-ink-2 hover:bg-black/[0.04]'
         )}
       >
-        <span className="text-base leading-none">✦</span> 首页
+        <HomeIcon className="w-[18px] h-[18px] shrink-0" />
+        <span>首页</span>
       </Link>
 
       <div className="mt-1 flex flex-col gap-0.5">
@@ -57,7 +59,10 @@ export function BoardSidebar() {
                   isOpen ? 'text-ink bg-black/[0.03]' : 'text-ink-2 hover:bg-black/[0.04] hover:text-ink'
                 )}
               >
-                <span>{c.name}</span>
+                <span className="flex items-center gap-2 min-w-0">
+                  <CategoryIcon name={c.name} className="w-[18px] h-[18px] shrink-0" />
+                  <span className="truncate">{c.name}</span>
+                </span>
                 <svg
                   width="14"
                   height="14"
@@ -78,13 +83,14 @@ export function BoardSidebar() {
                       key={b.id}
                       to={`/board/${b.id}`}
                       className={cn(
-                        'px-2.5 py-1.5 rounded-lg text-[13px] transition-colors truncate',
+                        'flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] transition-colors',
                         boardId === b.id
                           ? 'bg-brand-soft text-brand font-medium'
                           : 'text-ink-2 hover:bg-black/[0.04] hover:text-ink'
                       )}
                     >
-                      {b.name}
+                      <BoardIcon slug={b.slug} className="w-4 h-4 shrink-0" />
+                      <span className="truncate">{b.name}</span>
                     </Link>
                   ))}
                 </div>

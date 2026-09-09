@@ -12,7 +12,7 @@ interface BoardSelectProps {
   fullWidth?: boolean
 }
 
-// 板块选择（父子级联）：先选分类（父），再选板块（子）。
+// 板块选择（父子级联）：左列一级分类、右列对应板块，两列同时可见，切换分类无需返回。
 export function BoardSelect({
   value,
   onChange,
@@ -25,8 +25,7 @@ export function BoardSelect({
   const categories = useCategoryStore((s) => s.categories)
   const loadCategories = useCategoryStore((s) => s.load)
   const [open, setOpen] = useState(false)
-  const [level, setLevel] = useState<'root' | 'board'>('root')
-  const [catId, setCatId] = useState('')
+  const [activeCatId, setActiveCatId] = useState('')
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -42,7 +41,7 @@ export function BoardSelect({
   }, [])
 
   const selected = categories.flatMap((c) => c.boards).find((b) => b.id === value)
-  const activeCat = categories.find((c) => c.id === catId)
+  const activeCat = categories.find((c) => c.id === activeCatId) || categories[0]
 
   const label = selected ? selected.name : allowAll ? '全部板块' : placeholder
 
@@ -50,8 +49,9 @@ export function BoardSelect({
     if (open) {
       setOpen(false)
     } else {
-      setLevel('root')
-      setCatId('')
+      // 打开时定位到当前值所属分类（未选则落到第一个分类）
+      const cat = categories.find((c) => c.boards.some((b) => b.id === value))
+      setActiveCatId(cat?.id || categories[0]?.id || '')
       setOpen(true)
     }
   }
@@ -61,7 +61,7 @@ export function BoardSelect({
     setOpen(false)
   }
 
-  const itemCls = (active: boolean) =>
+  const rowCls = (active: boolean) =>
     cn(
       'w-full text-left px-3 py-2 text-sm transition-colors flex items-center justify-between gap-2',
       active ? 'text-brand font-medium bg-brand-soft' : 'text-ink hover:bg-black/[0.04]'
@@ -89,56 +89,51 @@ export function BoardSelect({
       {open && (
         <div
           className={cn(
-            'absolute top-full mt-1 max-h-80 overflow-y-auto bg-surface rounded-xl border border-line shadow-pop py-1 z-50',
-            fullWidth ? 'w-full' : 'w-64',
+            'absolute top-full mt-1 flex bg-surface rounded-xl border border-line shadow-pop z-50',
+            fullWidth ? 'w-full' : 'w-[26rem] max-w-[calc(100vw-1.5rem)]',
             align === 'right' ? 'right-0' : 'left-0'
           )}
         >
-          {level === 'root' ? (
-            <>
-              {allowAll && (
-                <button onClick={() => pickBoard('')} className={itemCls(value === '')}>
-                  <span>全部板块</span>
-                </button>
-              )}
-              {categories.map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => {
-                    setCatId(c.id)
-                    setLevel('board')
-                  }}
-                  className={itemCls(false)}
-                >
-                  <span>{c.name}</span>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-ink-3 shrink-0">
-                    <path d="m9 6 6 6-6 6" />
-                  </svg>
-                </button>
-              ))}
-            </>
-          ) : (
-            <>
-              <button
-                onClick={() => {
-                  setLevel('root')
-                  setCatId('')
-                }}
-                className="w-full text-left px-3 py-2 text-sm text-ink-2 hover:bg-black/[0.04] transition-colors flex items-center gap-1.5"
-              >
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="shrink-0">
-                  <path d="m15 6-6 6 6 6" />
-                </svg>
-                <span className="font-medium text-ink">{activeCat?.name}</span>
+          {/* 左列：一级分类 */}
+          <div className="w-1/2 min-w-0 border-r border-line/60 py-1 max-h-80 overflow-y-auto">
+            {allowAll && (
+              <button onClick={() => pickBoard('')} className={rowCls(value === '')}>
+                <span>全部板块</span>
               </button>
-              <div className="my-1 border-t border-line/60" />
-              {(activeCat?.boards || []).map((b) => (
-                <button key={b.id} onClick={() => pickBoard(b.id)} className={itemCls(value === b.id)}>
-                  <span>{b.name}</span>
+            )}
+            {categories.map((c) => (
+              <button
+                key={c.id}
+                onMouseEnter={() => setActiveCatId(c.id)}
+                onClick={() => setActiveCatId(c.id)}
+                className={rowCls(c.id === activeCat?.id)}
+              >
+                <span className="truncate">{c.name}</span>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-ink-3 shrink-0">
+                  <path d="m9 6 6 6-6 6" />
+                </svg>
+              </button>
+            ))}
+          </div>
+
+          {/* 右列：板块 */}
+          <div className="w-1/2 min-w-0 py-1 max-h-80 overflow-y-auto">
+            <div className="px-3 py-1.5 text-[12px] text-ink-3 font-medium truncate">{activeCat?.name || ''}</div>
+            {(activeCat?.boards || []).length === 0 ? (
+              <p className="px-3 py-2 text-sm text-ink-3">暂无板块</p>
+            ) : (
+              activeCat!.boards.map((b) => (
+                <button key={b.id} onClick={() => pickBoard(b.id)} className={rowCls(value === b.id)}>
+                  <span className="truncate">{b.name}</span>
+                  {value === b.id && (
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="shrink-0">
+                      <path d="m5 13 4 4L19 7" />
+                    </svg>
+                  )}
                 </button>
-              ))}
-            </>
-          )}
+              ))
+            )}
+          </div>
         </div>
       )}
     </div>

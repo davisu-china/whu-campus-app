@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"time"
+
 	"gorm.io/gorm"
 
 	"github.com/whu-campus/luojia-bbs/internal/model"
@@ -62,20 +64,27 @@ func (r *ContentRepo) CreatePostWithDetails(post *model.Post, tagIDs []string, f
 	})
 }
 
-// CreateReplyWithFloor 事务内分配楼层号并创建回复，返回楼层号。
+// CreateReplyWithFloor 事务内创建回复：自增总回复数并（顶层）分配楼层号。
+//
+// 楼层号按「当前顶层楼层数 + 1」计算。先 UPDATE 自增 reply_count 会对帖子行加锁，
+// 从而串行化同一帖子的并发回复，保证楼层号不重不漏。
 func (r *ContentRepo) CreateReplyWithFloor(postID string, reply *model.Reply) (int, error) {
 	var floor int
 	err := r.db.Transaction(func(tx *gorm.DB) error {
+		// 每条回复（顶层 + 楼中楼）都计入总回复数；UPDATE 同时锁定帖子行。
+		if err := tx.Model(&model.Post{}).Where("id = ?", postID).
+			UpdateColumn("reply_count", gorm.Expr("reply_count + 1")).Error; err != nil {
+			return err
+		}
 		if reply.ParentID == nil {
-			var f int
-			if err := tx.Raw(
-				"UPDATE posts SET reply_count = reply_count + 1 WHERE id = ? RETURNING reply_count",
-				postID,
-			).Scan(&f).Error; err != nil {
+			var cnt int64
+			if err := tx.Model(&model.Reply{}).
+				Where("post_id = ? AND parent_id IS NULL", postID).
+				Count(&cnt).Error; err != nil {
 				return err
 			}
-			reply.FloorNo = f
-			floor = f
+			reply.FloorNo = int(cnt) + 1
+			floor = reply.FloorNo
 		}
 		return tx.Create(reply).Error
 	})
@@ -218,13 +227,13 @@ func (r *ContentRepo) ListFeatured(page, pageSize int) ([]model.Post, int64, err
 	return list, total, err
 }
 
-// ListHot 全站热门：按回复数。
+// ListHot 全站热门：按综合热度分（评论/点赞/收藏 + 时间衰减）。
 func (r *ContentRepo) ListHot(limit int) ([]model.Post, error) {
 	var list []model.Post
 	err := r.db.Model(&model.Post{}).
 		Where("status = ?", model.PostStatusPublished).
 		Preload("Author").Preload("Board").
-		Order("reply_count DESC, hot_score DESC").
+		Order("hot_score DESC, reply_count DESC").
 		Limit(limit).Find(&list).Error
 	return list, err
 }
@@ -286,16 +295,6 @@ func (r *ContentRepo) CountTodayPosts() (int64, error) {
 
 // ---- 楼层与计数 ----
 
-// AllocateFloor 原子分配楼层号：自增 reply_count 并返回新值（RETURNING）。
-func (r *ContentRepo) AllocateFloor(postID string) (int, error) {
-	var floor int
-	err := r.db.Raw(
-		"UPDATE posts SET reply_count = reply_count + 1 WHERE id = ? RETURNING reply_count",
-		postID,
-	).Scan(&floor).Error
-	return floor, err
-}
-
 // IncrementView 浏览计数 +delta。
 func (r *ContentRepo) IncrementView(postID string, delta int64) error {
 	return r.db.Model(&model.Post{}).Where("id = ?", postID).
@@ -320,12 +319,24 @@ func (r *ContentRepo) UpdateHotScore(postID string, score float64) error {
 		UpdateColumn("hot_score", score).Error
 }
 
-// ListForRank 拉取全部已发布帖子用于热榜重算。
-func (r *ContentRepo) ListForRank() ([]model.Post, error) {
-	var list []model.Post
-	err := r.db.Where("status = ?", model.PostStatusPublished).
-		Select("id, board_id, reply_count, like_count, view_count, created_at").
-		Find(&list).Error
+// rankRow 热榜重算所需的帖子计数字段（收藏数实时子查询，避免冗余列漂移）。
+type rankRow struct {
+	ID            string
+	BoardID       string
+	ReplyCount    int
+	LikeCount     int
+	FavoriteCount int
+	CreatedAt     time.Time
+}
+
+// ListForRank 拉取全部已发布帖子用于热榜重算（含实时收藏数）。
+func (r *ContentRepo) ListForRank() ([]rankRow, error) {
+	var list []rankRow
+	err := r.db.Model(&model.Post{}).
+		Select(`posts.id, posts.board_id, posts.reply_count, posts.like_count, posts.created_at,
+			(SELECT count(*) FROM favorites WHERE favorites.post_id = posts.id) AS favorite_count`).
+		Where("posts.status = ?", model.PostStatusPublished).
+		Scan(&list).Error
 	return list, err
 }
 
@@ -371,12 +382,61 @@ func (r *ContentRepo) GetReply(id string) (*model.Reply, error) {
 	return &reply, nil
 }
 
-// ListReplies 帖子全部有效回复（按楼层与时间排序，MVP 不分页）。
-func (r *ContentRepo) ListReplies(postID string) ([]model.Reply, error) {
+// CountFloors 帖子顶层楼层数（不含楼中楼）。
+func (r *ContentRepo) CountFloors(postID string) (int64, error) {
+	var n int64
+	err := r.db.Model(&model.Reply{}).
+		Where("post_id = ? AND status = ? AND parent_id IS NULL", postID, model.ReplyStatusNormal).
+		Count(&n).Error
+	return n, err
+}
+
+// ListFloors 分页列出顶层楼层（parent_id 为空），按楼层号正序。
+func (r *ContentRepo) ListFloors(postID string, page, pageSize int) ([]model.Reply, error) {
 	var list []model.Reply
 	err := r.db.Preload("Author").
-		Where("post_id = ? AND status = ?", postID, model.ReplyStatusNormal).
-		Order("floor_no ASC, created_at ASC").Find(&list).Error
+		Where("post_id = ? AND status = ? AND parent_id IS NULL", postID, model.ReplyStatusNormal).
+		Order("floor_no ASC").
+		Offset((page - 1) * pageSize).Limit(pageSize).
+		Find(&list).Error
+	return list, err
+}
+
+// CountSubReplies 各楼层楼中楼数量（parent_id 非空），返回 floor_no -> count。
+func (r *ContentRepo) CountSubReplies(postID string, floorNos []int) (map[int]int64, error) {
+	if len(floorNos) == 0 {
+		return map[int]int64{}, nil
+	}
+	type row struct {
+		FloorNo int   `gorm:"column:floor_no"`
+		Cnt     int64 `gorm:"column:cnt"`
+	}
+	var rows []row
+	err := r.db.Model(&model.Reply{}).
+		Select("floor_no, count(*) AS cnt").
+		Where("post_id = ? AND status = ? AND parent_id IS NOT NULL AND floor_no IN ?",
+			postID, model.ReplyStatusNormal, floorNos).
+		Group("floor_no").Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[int]int64, len(rows))
+	for _, r := range rows {
+		m[r.FloorNo] = r.Cnt
+	}
+	return m, nil
+}
+
+// ListSubReplies 列出指定楼层下的全部楼中楼（按时间正序）。
+func (r *ContentRepo) ListSubReplies(postID string, floorNos []int) ([]model.Reply, error) {
+	if len(floorNos) == 0 {
+		return []model.Reply{}, nil
+	}
+	var list []model.Reply
+	err := r.db.Preload("Author").
+		Where("post_id = ? AND status = ? AND parent_id IS NOT NULL AND floor_no IN ?",
+			postID, model.ReplyStatusNormal, floorNos).
+		Order("created_at ASC").Find(&list).Error
 	return list, err
 }
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { getBoard, getBoardPosts, getBoardTags } from '../api/board'
-import type { Board as BoardT, SortType, Tag } from '../api/types'
+import { getBoard, getBoardHotTags, getBoardPosts } from '../api/board'
+import type { Board as BoardT, HotTag, SortType } from '../api/types'
 import { usePaginatedList } from '../hooks/usePaginatedList'
 import { PostCard } from '../components/PostCard'
 import { LoadMore } from '../components/LoadMore'
@@ -12,7 +12,7 @@ import { SORT_OPTIONS } from '../constants/enums'
 export default function Board() {
   const { id = '' } = useParams()
   const [board, setBoard] = useState<BoardT | null>(null)
-  const [tags, setTags] = useState<Tag[]>([])
+  const [hotTags, setHotTags] = useState<HotTag[]>([])
   const [sort, setSort] = useState<SortType>('comprehensive')
   const [tagId, setTagId] = useState('')
 
@@ -30,9 +30,9 @@ export default function Board() {
   }, [id])
 
   useEffect(() => {
-    getBoardTags(id)
-      .then(setTags)
-      .catch(() => setTags([]))
+    getBoardHotTags(id, 12)
+      .then((x) => setHotTags(Array.isArray(x) ? x : []))
+      .catch(() => setHotTags([]))
   }, [id])
 
   useEffect(() => {
@@ -64,7 +64,7 @@ export default function Board() {
           ))}
         </div>
 
-        {tags.length > 0 && (
+        {hotTags.length > 0 && (
           <div className="flex items-center gap-1.5 flex-wrap">
             <button
               onClick={() => setTagId('')}
@@ -77,18 +77,19 @@ export default function Board() {
             >
               全部
             </button>
-            {tags.map((t) => (
+            {hotTags.map((t) => (
               <button
-                key={t.id}
-                onClick={() => setTagId(t.id)}
+                key={t.tag_id}
+                onClick={() => setTagId(t.tag_id)}
                 className={cn(
                   'px-3 h-8 rounded-full text-[13px] border transition-colors',
-                  tagId === t.id
+                  tagId === t.tag_id
                     ? 'bg-brand text-white border-brand'
                     : 'bg-surface text-ink-2 border-line/60 hover:border-brand/40'
                 )}
               >
                 {t.name}
+                <span className="ml-1 text-[11px] opacity-70">{t.post_count}</span>
               </button>
             ))}
           </div>
